@@ -61,9 +61,11 @@ class Hello : public CBase_Hello {
     hapiCheck(cudaGetDevice(&device));
     cudaDeviceProp prop;
     hapiCheck(cudaGetDeviceProperties(&prop, device));
+    char name[128];
+    hapiCheck(cuDeviceGetName(name, 128, device));
 
-    CkPrintf("Hello, I'm chare %d, on PE %d using GPU #%d %s\n",
-        thisIndex, CkMyPe(), device, prop.name);
+    CkPrintf("Hello, I'm chare %d, on PE %d using GPU #%d (%s) %s\n",
+        thisIndex, CkMyPe(), device, name, prop.name);
 
     CkArrayIndex1D myIndex = CkArrayIndex1D(thisIndex);
     CkCallback* cb = new CkCallback(CkIndex_Hello::pass(), myIndex, thisArrayID);
