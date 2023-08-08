@@ -7,13 +7,13 @@ OBJS = stencil3d.o
 all: stencil3d
 
 stencil3d: $(OBJS)
-	$(CHARMC) -language charm++ -module CommonLBs -o stencil3d $(OBJS)
+	$(CHARMC) -language charm++ -module DiffusionLB -o stencil3d $(OBJS)
 
 projections: $(OBJS)
 	$(CHARMC) -language charm++ -module CommonLBs -tracemode projections -lz -o stencil3d.prj $(OBJS)
 
 summary: $(OBJS)
-	$(CHARMC) -language charm++ -module CommonLBs -tracemode summary -lz -o stencil3d.sum $(OBJS)
+	$(CHARMC) -language charm++ -module CommonLBs -o stencil3d.sum $(OBJS)
 
 stencil3d.decl.h: stencil3d.ci
 	$(CHARMC)  stencil3d.ci
