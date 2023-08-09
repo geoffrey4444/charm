@@ -59,9 +59,9 @@ protected:
 
   LDStats myStats;
   int migrates_expected;
+  bool lb_started;
 
 private:
-	bool lb_started;
   double start_lb_time;
   double strat_start_time;
   double strat_end_time;

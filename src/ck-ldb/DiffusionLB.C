@@ -51,7 +51,7 @@ void DiffusionLB::staticMigrated(void* data, LDObjHandle h, int waitBarrier)
 void DiffusionLB::staticAtSync(void* data)
 {
   DiffusionLB *me = (DiffusionLB*)(data);
-  me->AtSync();
+//  me->AtSync();
 }
 
 void DiffusionLB::Strategy(const DistBaseLB::LDStats* const stats) {
@@ -59,6 +59,7 @@ void DiffusionLB::Strategy(const DistBaseLB::LDStats* const stats) {
     double start_time = CmiWallTimer();
     CkPrintf("In DiffusionLB strategy at %lf\n", start_time);
   }
+  lb_started = false;
   AtSync();
 }
 // preprocess topology information: only done once
@@ -123,7 +124,7 @@ void DiffusionLB::InitLB(const CkLBOptions &opt) {
 #if DEBUG_K
   CkPrintf("\n[PE-%d] nodeFirst = %d", CkMyPe(), nodeFirst);
 #endif
-  //ComputeNeighbors();
+  ComputeNeighbors();
   if(CkMyPe() == nodeFirst) {
     gain_val = NULL;
     obj_arr = NULL;
@@ -188,15 +189,6 @@ void DiffusionLB::AtSync() {
     //sendToNeighbors.clear();
     //toSend = 0;
     CkPrintf("\nCkMyPe()=%d, nodeFirst=%d", CkMyPe(), nodeFirst);
-/*
-    if(CkMyPe() == nodeFirst) {
-      for(int i = 0; i < neighborCount; i++) {
-        //Add your neighbors node-id as your neighbor
-        //AddNeighbor(neighbors[i]);
-        //  thisProxy[nodes[neighbors[i]]].AddNeighbor(peNodes[nodeFirst]);
-      }
-    }
-*/
     CkCallback cb(CkIndex_DiffusionLB::PEStarted(), thisProxy[0]);
     contribute(cb); 
   }
@@ -263,25 +255,28 @@ void DiffusionLB::ProcessAtSync()
  // CkMarshalledCLBStatsMessage *marshmsg;
   marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
 
-  for(int i=0;i<CkNumNodes();i++) {
-    int isNbor = 0;
-    if(i != CkMyNode())
-      for(int j=0;j<NUM_NEIGHBORS/2;j++)
-        if(nbors[j] == i) {
-          isNbor = 1;
-          break;
-        }
-#if DEBUG
-    if(isNbor)
-      CkPrintf("\n[PE-%d], notifying node %d", CkMyPe(), i);
-#endif
-    thisProxy[i].notifyNeighbor(isNbor, CkMyNode());
-  }
+  if(step()==0) {
+    for(int i=0;i<CkNumNodes();i++) {
+      int isNbor = 0;
+      if(i != CkMyNode())
+        for(int j=0;j<NUM_NEIGHBORS/2;j++)
+          if(nbors[j] == i) {
+            isNbor = 1;
+            break;
+          }
+  #if DEBUG
+      if(isNbor)
+        CkPrintf("\n[PE-%d], notifying node %d", CkMyPe(), i);
+  #endif
+      thisProxy[i].notifyNeighbor(isNbor, CkMyNode());
+    }
+  } else
+    doneNborExng();
 //  thisProxy[nodeFirst].ReceiveStats(*marshmsg);
 }
 
 void DiffusionLB::doneNborExng() {
-  if(CkMyPe() == nodeFirst) {
+  if(CkMyPe() == nodeFirst && step() == 0) {
       loadNeighbors.clear();
       toReceiveLoad.clear();
       toSendLoad.clear();
@@ -706,7 +701,7 @@ void DiffusionLB::LoadBalancing() {
         for(int j = 0; j < comm_w_nbors.size(); j++)
             sum_bytes += comm_w_nbors[j];
 
-        //This gives higher gain value to objects that have within node communication
+        //This gives higher gain value to objects that have more within node communication
         gain_val[i] = 2*objectComms[i][SELF_IDX] - sum_bytes;
       }
 
@@ -1282,26 +1277,28 @@ void DiffusionLB::BuildStats()
     
     // copy all data in individual message to this big structure
     for (int pe=0; pe<statsReceived; pe++) {
-        int i;
-        CLBStatsMsg *msg = statsList[pe];
-        if(msg == NULL) continue;
-        for (i = 0; i < msg->objData.size(); i++) {
-            nodeStats->from_proc[nobj] = nodeStats->to_proc[nobj] = start + pe;
-            nodeStats->objData[nobj] = msg->objData[i];
-            LDObjData &oData = nodeStats->objData[nobj];
-            CkPrintf("\n[PE-%d]Adding vertex id %d", CkMyPe(), nobj);
-            objs[nobj] = CkVertex(nobj, oData.wallTime, nodeStats->objData[nobj].migratable, nodeStats->from_proc[nobj]);
-            my_load += msg->objData[i].wallTime;
-            loadPE[pe] += msg->objData[i].wallTime;
-            loadPEBefore[pe] += msg->objData[i].wallTime;
-            /*TODO Keys LDObjKey key;
-            key.omID() = msg->objData[i].handle.omID;
-            key.objID() =  msg->objData[i].handle.objID;
-            nodeKeys[nobj] = key;*/
-            if (msg->objData[i].migratable) 
-                nmigobj++;
-	        nobj++;
-        }
+      int i;
+      CLBStatsMsg *msg = statsList[pe];
+      if(msg == NULL) continue;
+      for (i = 0; i < msg->objData.size(); i++) {
+        nodeStats->from_proc[nobj] = nodeStats->to_proc[nobj] = start + pe;
+        nodeStats->objData[nobj] = msg->objData[i];
+        LDObjData &oData = nodeStats->objData[nobj];
+#if MDEBUG
+        CkPrintf("\n[PE-%d]Adding vertex id %d", CkMyPe(), nobj);
+#endif
+        objs[nobj] = CkVertex(nobj, oData.wallTime, nodeStats->objData[nobj].migratable, nodeStats->from_proc[nobj]);
+        my_load += msg->objData[i].wallTime;
+        loadPE[pe] += msg->objData[i].wallTime;
+        loadPEBefore[pe] += msg->objData[i].wallTime;
+        /*TODO Keys LDObjKey key;
+        key.omID() = msg->objData[i].handle.omID;
+        key.objID() =  msg->objData[i].handle.objID;
+        nodeKeys[nobj] = key;*/
+        if (msg->objData[i].migratable) 
+            nmigobj++;
+        nobj++;
+      }
 //        CkPrintf("[%d] GRD BuildStats load of rank %d is %f \n", CkMyPe(), pe, loadPE[pe]);
         for (i = 0; i < msg->commData.size(); i++) {
             nodeStats->commData[ncom] = msg->commData[i];
