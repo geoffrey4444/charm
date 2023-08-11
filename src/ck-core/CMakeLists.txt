@@ -106,7 +106,7 @@ add_dependencies(moduleMetisLB ck ckmetis)
 # Single LBs
 add_library(moduleDistributedLB ../ck-ldb/DistributedLB.C)
 add_dependencies(moduleDistributedLB ck)
-add_library(moduleDiffusionLB ../ck-ldb/DiffusionLB.C)
+add_library(moduleDiffusionLB ../ck-ldb/DiffusionLB.C ../ck-ldb/DiffusionLB.h)
 add_dependencies(moduleDiffusionLB ck)
 add_library(moduleTreeLB ../ck-ldb/TreeLB.C)
 add_dependencies(moduleTreeLB ck)

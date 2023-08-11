@@ -57,7 +57,7 @@ void DiffusionLB::staticAtSync(void* data)
 void DiffusionLB::Strategy(const DistBaseLB::LDStats* const stats) {
   if (CkMyPe() == 0 && _lb_args.debug() >= 1) {
     double start_time = CmiWallTimer();
-    CkPrintf("In DiffusionLB strategy at %lf\n", start_time);
+//    CkPrintf("In DiffusionLB strategy at %lf\n", start_time);
   }
   lb_started = false;
   AtSync();
@@ -152,7 +152,7 @@ void DiffusionLB::InitLB(const CkLBOptions &opt) {
 }
 
 void DiffusionLB::AtSync() {
-#if 1//DEBUG_K
+#if DEBUG_K
   CkPrintf("\n[PE-%d]In DiffusionLB::AtSync()\n", CkMyPe()); fflush(stdout);
 #endif
 #if CMK_LBDB_ON
@@ -186,9 +186,9 @@ void DiffusionLB::AtSync() {
   // TODO: Check is it is the first load balancing step and then only 
   // perform this sending and QD
   if(step() == 0) {
-    //sendToNeighbors.clear();
+    sendToNeighbors.clear();
     //toSend = 0;
-    CkPrintf("\nCkMyPe()=%d, nodeFirst=%d", CkMyPe(), nodeFirst);
+//    CkPrintf("\nCkMyPe()=%d, nodeFirst=%d", CkMyPe(), nodeFirst);
     CkCallback cb(CkIndex_DiffusionLB::PEStarted(), thisProxy[0]);
     contribute(cb); 
   }
@@ -209,9 +209,11 @@ void DiffusionLB::PEStarted() {
 
 void DiffusionLB::AddNeighbor(int node) {
   toSend++;
-#if DEBUG_K
+#if 1//DEBUG_K
   CkPrintf("[%d] Send to neighbors node %d\n", CkMyPe(), node);//, nodes[node]);
 #endif
+  if(sendToNeighbors.size() > neighborCount)
+    CkPrintf("\n[PE-%d,node-%d]Adding nbors (node-%d) beyond count!! %lu>(of expected count %d)\n", CkMyPe(), CkMyNode(), node, sendToNeighbors.size(), neighborCount);
   sendToNeighbors.push_back(node);
 }
 
@@ -219,7 +221,7 @@ void DiffusionLB::ProcessAtSync()
 {
 #if CMK_LBDB_ON
   start_lb_time = 0;
-#if 1//DEBUG_K
+#if DEBUG_K
   CkPrintf("[%d] ProcessAtSync()", CkMyPe());
 #endif
 
@@ -247,6 +249,7 @@ void DiffusionLB::ProcessAtSync()
 #if DEBUG_K
   CkPrintf("\nBefore AssembleStats()");
 #endif
+
   // assemble LB database
   statsmsg = AssembleStats();
   if(statsmsg == NULL)
@@ -255,20 +258,22 @@ void DiffusionLB::ProcessAtSync()
  // CkMarshalledCLBStatsMessage *marshmsg;
   marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
 
-  if(step()==0) {
+  if(step()==0 && CkMyPe()==CkNodeFirst(CkMyNode())) {
     for(int i=0;i<CkNumNodes();i++) {
       int isNbor = 0;
-      if(i != CkMyNode())
-        for(int j=0;j<NUM_NEIGHBORS/2;j++)
+      if(i != CkMyNode()){
+        for(int j=0;j<NUM_NEIGHBORS/2;j++) {
           if(nbors[j] == i) {
             isNbor = 1;
             break;
           }
-  #if DEBUG
-      if(isNbor)
-        CkPrintf("\n[PE-%d], notifying node %d", CkMyPe(), i);
+        }
+      }
+  #if 1//DEBUG
+//      if(isNbor)
+        CkPrintf("\n[PE-%d], notifying node %d [PE-%d]\n", CkMyPe(), i, CkNodeFirst(i));
   #endif
-      thisProxy[i].notifyNeighbor(isNbor, CkMyNode());
+      thisProxy[CkNodeFirst(i)].notifyNeighbor(isNbor, CkMyNode());
     }
   } else
     doneNborExng();
@@ -276,13 +281,16 @@ void DiffusionLB::ProcessAtSync()
 }
 
 void DiffusionLB::doneNborExng() {
-  if(CkMyPe() == nodeFirst && step() == 0) {
+  if(CkMyPe() == CkNodeFirst(CkMyNode()) && step() == 0) {
       loadNeighbors.clear();
       toReceiveLoad.clear();
       toSendLoad.clear();
-      loadNeighbors.resize(neighborCount);
-      toReceiveLoad.resize(neighborCount);
-      toSendLoad.resize(neighborCount);
+      sendToNeighbors.clear();
+      loadNeighbors.reserve(neighborCount);
+      toReceiveLoad.reserve(neighborCount);
+      toSendLoad.reserve(neighborCount);
+      sendToNeighbors.reserve(neighborCount);
+      CkPrintf("\n[PE-%d] setting sendToNeighbors size to %d", CkMyPe(), neighborCount);
       for(int i = 0; i < neighborCount; i++) {
         //Add your neighbors node-id as your neighbor
         AddNeighbor(nbors[i]);
@@ -303,7 +311,8 @@ void DiffusionLB::ComputeNeighbors() {
   nodeSize = CkMyNodeSize(); 
   nodeFirst = CkMyNode()*nodeSize;
   // TODO: Juan's topology aware mapping
-  neighborCount = NUM_NEIGHBORS;
+  neighborCount = NUM_NEIGHBORS/2;
+/*
   neighbors.resize(neighborCount);
   neighbors[0] = CkMyNode()-1;
   if(neighbors[0] < 0) neighbors[0] = CkNumNodes()-1;
@@ -312,7 +321,7 @@ void DiffusionLB::ComputeNeighbors() {
   for(int i=0;i<neighbors.size();i++)
     CkPrintf("\nPE-%d, neighbor node = %d", CkMyPe(), neighbors[i]);
 #endif
-      
+*/    
 #if 0
     preprocess(NUM_NEIGHBORS);
 
@@ -416,7 +425,7 @@ CLBStatsMsg* DiffusionLB::AssembleStats()
   //statsMsg->n_comm = csz;
   lbmgr->GetCommData(statsMsg->commData.data());
 
-  if(step() == 0) {
+  if(step() == 0 && CkMyPe()==CkNodeFirst(CkMyNode())) {
     long ebytes[CkNumNodes()];
     nbors = new int[NUM_NEIGHBORS+CkNumNodes()];
     for(int i=0;i<CkNumNodes();i++)
@@ -439,11 +448,11 @@ CLBStatsMsg* DiffusionLB::AssembleStats()
       }
     }
     sortArr(ebytes, CkNumNodes(), nbors);
-//    CkPrintf("\n[PE-%d], my largest comm neighbors are %d,%d\n", CkMyPe(), nbors[0], nbors[1]);
+    CkPrintf("\n[PE-%d, node-%d], my largest comm neighbors are %d,%d\n", CkMyPe(), CkMyNode(), nbors[0], nbors[1]);
   }
 
 
-  if(CkMyPe() == nodeFirst)
+  if(CkMyPe() == CkNodeFirst(CkMyNode()))
     numObjects[0] = osz;
   return statsMsg;
 #else
@@ -455,7 +464,7 @@ void DiffusionLB::ReceiveStats(CkMarshalledCLBStatsMessage &&data)
 {
 #if CMK_LBDB_ON
   CLBStatsMsg *m = data.getMessage();
-#if DEBUG_K
+#if 1//DEBUG_K
   DEBUGF(("[%d] GRD ReceiveStats from pe %d\n", CkMyPe(), m->from_pe));
 #endif
   CmiAssert(CkMyPe() == nodeFirst);
@@ -576,7 +585,7 @@ void DiffusionLB::PseudoLoadBalancing() {
   DEBUGL(("[%d] GRD: Pseudo Load Balancing Sending, iteration %d totalUndeload %f totalOverLoad %f my_loadAfterTransfer %f\n", CkMyPe(), itr, totalUnderLoad, totalOverload, my_loadAfterTransfer));
   for(int i = 0; i < neighborCount; i++) {
     if(totalOverload > 0 && totalUnderLoad > 0 && thisIterToSend[i] > 0) {
-      CkPrintf("[%d] GRD: Pseudo Load Balancing Sending, iteration %d node %d toSend %lf totalToSend %lf\n", CkMyPe(), itr, nbors[i], thisIterToSend[i], (thisIterToSend[i]*totalOverload)/totalUnderLoad);
+      CkPrintf("[%d] GRD: Pseudo Load Balancing Sending, iteration %d node %d(pe-%d) toSend %lf totalToSend %lf\n", CkMyPe(), itr, nbors[i], CkNodeFirst(nbors[i]), thisIterToSend[i], (thisIterToSend[i]*totalOverload)/totalUnderLoad);
       thisIterToSend[i] *= totalOverload/totalUnderLoad;
       toSendLoad[i] += thisIterToSend[i];
     }
@@ -588,6 +597,7 @@ void DiffusionLB::PseudoLoadBalancing() {
 }
 
 int DiffusionLB::findNborIdx(int node) {
+  CkPrintf("\n[PE-%d]Looking for node %d in nbor array of size %lu", CkMyPe(), node, sendToNeighbors.size());
   for(int i=0;i<sendToNeighbors.size();i++)
     if(sendToNeighbors[i] == node)
       return i;
@@ -791,7 +801,7 @@ void DiffusionLB::LoadBalancing() {
           }
           int pe = GetPENumber(objId);
           migratedFrom[pe]++;
-          int initPE = nodeFirst + pe;
+          int initPE = CkNodeFirst(CkMyNode()) + pe;
           loadPE[pe] -= currLoad;
           numObjects[pe]--;
           CkPrintf("[%d] GRD: Load Balancing object load %f to node %d and from pe %d and objID %d\n", CkMyPe(), currLoad, node, initPE, objId);

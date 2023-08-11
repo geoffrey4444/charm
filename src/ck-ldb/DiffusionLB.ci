@@ -51,9 +51,11 @@ module DiffusionLB {
       if(notif == CkNumNodes()) {
         for(int k=0;k<neighborCount;k++)
           CkPrintf("\n[PE-%d], my largest comm %dth neighbors are %d\n", CkMyPe(), k, nbors[k]);
-        notif = 0;
+//        notif = 0;
         doneNborExng();
-      }
+      } 
+      else if(notif > CkNumNodes())
+        CkPrintf("\nToo many notificaations!! [PE-%d]", CkMyPe());
     }
     };
     
@@ -75,17 +77,18 @@ module DiffusionLB {
              
             // Wait for all its neighbors load
             for(temp_itr = 0; temp_itr < neighborCount; temp_itr++) {
-                when ReceiveLoadInfo[itr](int itr, double load, int node) serial {
+                when ReceiveLoadInfo[itr](int itr, double load, int node) serial
+                {
                   //if(itr == 0 || itr == ITERATIONS-1)
                   {
-//                    CkPrintf("\n[Pe-%d (node-%d) itr-%d] recvd load from node-%d\n",
-//                                                CkMyPe(), CkMyNode(), itr, node);
+                    CkPrintf("\n[Pe-%d (node-%d) itr-%d] recvd load from node-%d\n",
+                                               CkMyPe(), CkMyNode(), itr, node);
                   }
-                  int pos = findNborIdx(node);
-                  CkPrintf("\n[PE-%d]pos = %d", CkMyPe(), pos);
-                  if(pos < 0 || pos >= CkNumNodes())
-                    CkPrintf("\nError in pos %d", pos);
-                  loadNeighbors[pos] = load;
+                  int pos1 = findNborIdx(node);
+                  CkPrintf("\n[PE-%d]pos = %d(//%d)", CkMyPe(), pos1,neighborCount-1);
+                  if(pos1 < 0 || pos1 >= CkNumNodes())
+                    CkPrintf("\nError in pos %d", pos1);
+                  loadNeighbors[pos1] = load;
                 }
             }
 
