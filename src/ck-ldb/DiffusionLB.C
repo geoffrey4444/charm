@@ -287,8 +287,8 @@ void DiffusionLB::doneNborExng() {
       toSendLoad.clear();
       sendToNeighbors.clear();
       loadNeighbors.reserve(neighborCount);
-      toReceiveLoad.reserve(neighborCount);
-      toSendLoad.reserve(neighborCount);
+      toReceiveLoad.resize(neighborCount);
+      toSendLoad.resize(neighborCount);
       sendToNeighbors.reserve(neighborCount);
       CkPrintf("\n[PE-%d] setting sendToNeighbors size to %d", CkMyPe(), neighborCount);
       for(int i = 0; i < neighborCount; i++) {
@@ -687,6 +687,7 @@ void DiffusionLB::LoadBalancing() {
 
     actualSend = 0;
     balanced.resize(toSendLoad.size());
+    CkPrintf("\nIterating through toSendLoad of size %lu", toSendLoad.size());
     for(int i = 0; i < toSendLoad.size(); i++) {
       balanced[i] = false;
       if(toSendLoad[i] > 0) {
@@ -694,6 +695,7 @@ void DiffusionLB::LoadBalancing() {
         actualSend++;
       }
     }
+    CkPrintf("\n[PE-%d,Node-%d]actualSend = %d", CkMyPe(), CkMyNode(), actualSend);
 
     if(actualSend > 0) {
 
@@ -739,10 +741,6 @@ void DiffusionLB::LoadBalancing() {
         counter++;
         //pop the object id with the least gain (i.e least internal comm compared to ext comm)
 
-        if(CkMyPe()==0)
-          for(int ii=0;ii<n_objs;ii++)
-            CkPrintf("\ngain_val[%d] = %d", ii, gain_val[ii]);
-
         v_id = heap_pop(obj_heap, ObjCompareOperator(&objs, gain_val), heap_pos);
         
         CkPrintf("\n On PE-%d, popped v_id = %d", CkMyPe(), v_id);
@@ -760,7 +758,6 @@ void DiffusionLB::LoadBalancing() {
         vector<int> comm = objectComms[v_id];
         int maxComm = 0;
         int maxi = -1;
-#if 1
         // TODO: Get the object vs communication cost ratio and work accordingly.
         for(int i = 0 ; i < neighborCount; i++) {
             
@@ -772,10 +769,7 @@ void DiffusionLB::LoadBalancing() {
             }
           }
         }
-#endif
-
-//        if(CkMyPe()==0)
-          CkPrintf("\n[PE-%d] maxi = %d", CkMyPe(), maxi);
+        CkPrintf("\n[PE-%d] maxi = %d", CkMyPe(), maxi);
           
         if(maxi != -1) {
 #if 1
@@ -1036,7 +1030,7 @@ void DiffusionLB::CascadingMigration(LDObjHandle h, double load) {
 
 //What does this method do? - find out
 void DiffusionLB::LoadMetaInfo(LDObjHandle h, double load) {
-    migrates_expected++;
+    //migrates_expected++;
     int idx = FindObjectHandle(h);
     if(idx == -1) {
         objectHandles.push_back(h);
@@ -1053,7 +1047,7 @@ void DiffusionLB::LoadMetaInfo(LDObjHandle h, double load) {
 
 void DiffusionLB::Migrated(LDObjHandle h, int waitBarrier)
 {
-    migrates_completed++;
+    //migrates_completed++;
     if(CkMyPe() == nodeFirst) {
         thisProxy[CkMyPe()].MigratedHelper(h, waitBarrier);
     }
