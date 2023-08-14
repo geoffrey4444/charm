@@ -210,7 +210,7 @@ void DiffusionLB::PEStarted() {
 void DiffusionLB::AddNeighbor(int node) {
   toSend++;
 #if 1//DEBUG_K
-  CkPrintf("[%d] Send to neighbors node %d\n", CkMyPe(), node);//, nodes[node]);
+  CkPrintf("[PE-%d, Node-%d] My neighbors node %d\n", CkMyPe(), CkMyNode(), node);//, nodes[node]);
 #endif
   if(sendToNeighbors.size() > neighborCount)
     CkPrintf("\n[PE-%d,node-%d]Adding nbors (node-%d) beyond count!! %lu>(of expected count %d)\n", CkMyPe(), CkMyNode(), node, sendToNeighbors.size(), neighborCount);
@@ -256,28 +256,13 @@ void DiffusionLB::ProcessAtSync()
     CkPrintf("!!!Its null!!!\n");
 
  // CkMarshalledCLBStatsMessage *marshmsg;
-  marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
-
-  if(step()==0 && CkMyPe()==CkNodeFirst(CkMyNode())) {
-    for(int i=0;i<CkNumNodes();i++) {
-      int isNbor = 0;
-      if(i != CkMyNode()){
-        for(int j=0;j<NUM_NEIGHBORS/2;j++) {
-          if(nbors[j] == i) {
-            isNbor = 1;
-            break;
-          }
-        }
-      }
-  #if 1//DEBUG
-//      if(isNbor)
-        CkPrintf("\n[PE-%d], notifying node %d [PE-%d]\n", CkMyPe(), i, CkNodeFirst(i));
-  #endif
-      thisProxy[CkNodeFirst(i)].notifyNeighbor(isNbor, CkMyNode());
-    }
-  } else
-    doneNborExng();
-//  thisProxy[nodeFirst].ReceiveStats(*marshmsg);
+//  marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
+  
+    // send to parent
+  CkPrintf("[%d] Sending to parent #%d ReceiveStats\n", CkMyPe(), nodeFirst); fflush(stdout);
+  CkMarshalledCLBStatsMessage marshmsg(statsmsg);
+//  marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
+  thisProxy[nodeFirst].ReceiveStats(marshmsg);
 }
 
 void DiffusionLB::doneNborExng() {
@@ -301,7 +286,8 @@ void DiffusionLB::doneNborExng() {
   CkPrintf("[%d] Sending to parent #%d ReceiveStats\n", CkMyPe(), nodeFirst); fflush(stdout);
 //  CkMarshalledCLBStatsMessage marshmsg(statsmsg);
 //  marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
-  thisProxy[nodeFirst].ReceiveStats(*marshmsg);
+//  thisProxy[nodeFirst].ReceiveStats(*marshmsg);
+  thisProxy[CkMyPe()].iterate();
 #endif
 }
 
@@ -425,33 +411,6 @@ CLBStatsMsg* DiffusionLB::AssembleStats()
   //statsMsg->n_comm = csz;
   lbmgr->GetCommData(statsMsg->commData.data());
 
-  if(step() == 0 && CkMyPe()==CkNodeFirst(CkMyNode())) {
-    long ebytes[CkNumNodes()];
-    nbors = new int[NUM_NEIGHBORS+CkNumNodes()];
-    for(int i=0;i<CkNumNodes();i++)
-      nbors[i] = -1;
-    neighborCount = NUM_NEIGHBORS/2;
-    for(int edge = 0; edge < nodeStats->commData.size(); edge++) {
-      LDCommData &commData = nodeStats->commData[edge];
-      if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
-        LDObjKey from = commData.sender;
-        LDObjKey to = commData.receiver.get_destObj();
-        int fromNode = CkMyNode();//peNodes[nodeFirst]; //Originating from my node? - q
-
-        // Check the possible values of lastKnown.
-        int toPE = commData.receiver.lastKnown();
-        int toNode = CkNodeOf(toPE);
-
-        if(fromNode != toNode && toNode!= -1) {
-          ebytes[toNode] += commData.bytes;
-        }
-      }
-    }
-    sortArr(ebytes, CkNumNodes(), nbors);
-    CkPrintf("\n[PE-%d, node-%d], my largest comm neighbors are %d,%d\n", CkMyPe(), CkMyNode(), nbors[0], nbors[1]);
-  }
-
-
   if(CkMyPe() == CkNodeFirst(CkMyNode()))
     numObjects[0] = osz;
   return statsMsg;
@@ -478,8 +437,57 @@ void DiffusionLB::ReceiveStats(CkMarshalledCLBStatsMessage &&data)
   {
     // build LDStats
     BuildStats();
+    if(step() == 0 && CkMyPe()==CkNodeFirst(CkMyNode())) {
+    long ebytes[CkNumNodes()];
+    std::fill_n(ebytes, CkNumNodes(), 0);
+    nbors = new int[NUM_NEIGHBORS+CkNumNodes()];
+    for(int i=0;i<CkNumNodes();i++)
+      nbors[i] = -1;
+    neighborCount = NUM_NEIGHBORS/2;
+    CkPrintf("\nedges = %lu", nodeStats->commData.size());
+    for(int edge = 0; edge < nodeStats->commData.size(); edge++) {
+      LDCommData &commData = nodeStats->commData[edge];
+      if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
+        LDObjKey from = commData.sender;
+        LDObjKey to = commData.receiver.get_destObj();
+
+        // Check the possible values of lastKnown.
+        int toPE = commData.receiver.lastKnown();
+        int toNode = CkNodeOf(toPE);
+        CkPrintf("\ntoPE = %d",toPE);
+        if(CkMyNode() != toNode && toNode!= -1) {
+          ebytes[toNode] += commData.bytes;
+        }
+      }
+    }
+    for(int i=0;i<CkNumNodes();i++)
+      CkPrintf("\n[PE-%d,Node-%d] ebytes[to node %d] = %lu", CkMyPe(), CkMyNode(), i, ebytes[i]);
+    sortArr(ebytes, CkNumNodes(), nbors);
+    CkPrintf("\n[PE-%d, node-%d], my largest comm neighbors are %d,%d\n", CkMyPe(), CkMyNode(), nbors[0], nbors[1]);
+  }
+
+    if(step()==0 && CkMyPe()==CkNodeFirst(CkMyNode())) {
+    for(int i=0;i<CkNumNodes();i++) {
+      int isNbor = 0;
+      if(i != CkMyNode()){
+        for(int j=0;j<NUM_NEIGHBORS/2;j++) {
+          if(nbors[j] == i) {
+            isNbor = 1;
+            break;
+          }
+        }
+      }
+  #if 1//DEBUG
+//      if(isNbor)
+        CkPrintf("\n[PE-%d], notifying node %d [PE-%d]\n", CkMyPe(), i, CkNodeFirst(i));
+  #endif
+      thisProxy[CkNodeFirst(i)].notifyNeighbor(isNbor, CkMyNode());
+    }
+  } else
+    doneNborExng();
+
     statsReceived = 0;
-    thisProxy[CkMyPe()].iterate();
+//    thisProxy[CkMyPe()].iterate();
 
     // Graph Refinement: Generate neighbors, Send load to neighbors
   }
