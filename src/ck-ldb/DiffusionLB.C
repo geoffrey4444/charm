@@ -28,6 +28,8 @@
 #define NUM_NEIGHBORS 2
 #define ITERATIONS 4
 
+#define NODESIZE 2
+
 // Percentage of error acceptable.
 #define THRESHOLD 2
 
@@ -35,6 +37,27 @@
 static void lbinit()
 {
   LBRegisterBalancer<DiffusionLB>("DiffusionLB", "The distributed graph refine load balancer");
+}
+
+int CkMyNodeDiff() {
+  int myPE = CkMyPe();
+  return myPE/NODESIZE;
+}
+
+int CkNodeFirstDiff(int nd) {
+  return nd*NODESIZE;
+}
+
+int CkNodeOfDiff(int myPE) {
+  return myPE/NODESIZE;
+}
+
+int CkMyNodeSizeDiff() {
+  return NODESIZE;
+}
+
+int CkNumNodesDiff() {
+  return CkNumPes()/NODESIZE;
 }
 
 using std::vector;
@@ -102,7 +125,7 @@ void DiffusionLB::InitLB(const CkLBOptions &opt) {
   DEBUGF(("[%d] InitLB\n", CkMyPe()));
 #endif
   thisProxy = CProxy_DiffusionLB(thisgroup);
-  numNodes = CkNumNodes();
+  numNodes = CkNumNodesDiff();
 //    receiver = lbmgr->AddLocalBarrierReceiver((LDBarrierFn)(staticAtSync),
 //                (void*)(this));
 //    notifier = lbmgr->NotifyMigrated((LDMigratedFn)(staticMigrated), (void*)(this));
@@ -119,7 +142,7 @@ void DiffusionLB::InitLB(const CkLBOptions &opt) {
   myStats = new DistBaseLB::LDStats;
   //myStats->objData = NULL;
   //myStats->commData = NULL;
-  nodeFirst = CkNodeFirst(CkMyNode());
+  nodeFirst = CkNodeFirstDiff(CkMyNodeDiff());
   notif = 0;
 #if DEBUG_K
   CkPrintf("\n[PE-%d] nodeFirst = %d", CkMyPe(), nodeFirst);
@@ -210,10 +233,10 @@ void DiffusionLB::PEStarted() {
 void DiffusionLB::AddNeighbor(int node) {
   toSend++;
 #if 1//DEBUG_K
-  CkPrintf("[PE-%d, Node-%d] My neighbors node %d\n", CkMyPe(), CkMyNode(), node);//, nodes[node]);
+  CkPrintf("[PE-%d, Node-%d] My neighbors node %d\n", CkMyPe(), CkMyNodeDiff(), node);//, nodes[node]);
 #endif
   if(sendToNeighbors.size() > neighborCount)
-    CkPrintf("\n[PE-%d,node-%d]Adding nbors (node-%d) beyond count!! %lu>(of expected count %d)\n", CkMyPe(), CkMyNode(), node, sendToNeighbors.size(), neighborCount);
+    CkPrintf("\n[PE-%d,node-%d]Adding nbors (node-%d) beyond count!! %lu>(of expected count %d)\n", CkMyPe(), CkMyNodeDiff(), node, sendToNeighbors.size(), neighborCount);
   sendToNeighbors.push_back(node);
 }
 
@@ -266,7 +289,7 @@ void DiffusionLB::ProcessAtSync()
 }
 
 void DiffusionLB::doneNborExng() {
-  if(CkMyPe() == CkNodeFirst(CkMyNode()) && step() == 0) {
+  if(CkMyPe() == CkNodeFirstDiff(CkMyNodeDiff()) && step() == 0) {
       loadNeighbors.clear();
       toReceiveLoad.clear();
       toSendLoad.clear();
@@ -287,7 +310,7 @@ void DiffusionLB::doneNborExng() {
 //  CkMarshalledCLBStatsMessage marshmsg(statsmsg);
 //  marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
 //  thisProxy[nodeFirst].ReceiveStats(*marshmsg);
-  if(CkMyPe() == CkNodeFirst(CkMyNode()))
+  if(CkMyPe() == CkNodeFirstDiff(CkMyNodeDiff()))
   thisProxy[CkMyPe()].iterate();
 #endif
 }
@@ -295,15 +318,15 @@ void DiffusionLB::doneNborExng() {
 void DiffusionLB::ComputeNeighbors() {
   //TODO: Use application graph for computing node neighbors
   //Assuming nodes are neighbors in a line
-  nodeSize = CkMyNodeSize(); 
-  nodeFirst = CkMyNode()*nodeSize;
+  nodeSize = CkMyNodeSizeDiff(); 
+  nodeFirst = CkMyNodeDiff()*nodeSize;
   // TODO: Juan's topology aware mapping
   neighborCount = NUM_NEIGHBORS/2;
 /*
   neighbors.resize(neighborCount);
-  neighbors[0] = CkMyNode()-1;
-  if(neighbors[0] < 0) neighbors[0] = CkNumNodes()-1;
-  neighbors[1] = (CkMyNode()+1)%CkNumNodes();
+  neighbors[0] = CkMyNodeDiff()-1;
+  if(neighbors[0] < 0) neighbors[0] = CkNumNodesDiff()-1;
+  neighbors[1] = (CkMyNodeDiff()+1)%CkNumNodesDiff();
 #if DEBUG_K
   for(int i=0;i<neighbors.size();i++)
     CkPrintf("\nPE-%d, neighbor node = %d", CkMyPe(), neighbors[i]);
@@ -350,8 +373,8 @@ void DiffusionLB::sortArr(long arr[], int n, int *nbors)
   // Sorting pair vector
   sort(vp.begin(), vp.end());
   int found = 0;
-  for(int i=0;i<CkNumNodes();i++)
-    if(CkMyNode()!=vp[i].second) //Ideally we shouldn't need to check this
+  for(int i=0;i<CkNumNodesDiff();i++)
+    if(CkMyNodeDiff()!=vp[i].second) //Ideally we shouldn't need to check this
       nbors[found++] = vp[i].second;
   if(found == 0)
     CkPrintf("\nPE-%d Error!!!!!", CkMyPe());
@@ -412,7 +435,7 @@ CLBStatsMsg* DiffusionLB::AssembleStats()
   //statsMsg->n_comm = csz;
   lbmgr->GetCommData(statsMsg->commData.data());
 
-  if(CkMyPe() == CkNodeFirst(CkMyNode()))
+  if(CkMyPe() == CkNodeFirstDiff(CkMyNodeDiff()))
     numObjects[0] = osz;
   return statsMsg;
 #else
@@ -438,11 +461,11 @@ void DiffusionLB::ReceiveStats(CkMarshalledCLBStatsMessage &&data)
   {
     // build LDStats
     BuildStats();
-    if(step() == 0 && CkMyPe()==CkNodeFirst(CkMyNode())) {
-    long ebytes[CkNumNodes()];
-    std::fill_n(ebytes, CkNumNodes(), 0);
-    nbors = new int[NUM_NEIGHBORS+CkNumNodes()];
-    for(int i=0;i<CkNumNodes();i++)
+    if(step() == 0 && CkMyPe()==CkNodeFirstDiff(CkMyNodeDiff())) {
+    long ebytes[CkNumNodesDiff()];
+    std::fill_n(ebytes, CkNumNodesDiff(), 0);
+    nbors = new int[NUM_NEIGHBORS+CkNumNodesDiff()];
+    for(int i=0;i<CkNumNodesDiff();i++)
       nbors[i] = -1;
     neighborCount = NUM_NEIGHBORS/2;
     CkPrintf("\nedges = %lu", nodeStats->commData.size());
@@ -454,23 +477,23 @@ void DiffusionLB::ReceiveStats(CkMarshalledCLBStatsMessage &&data)
 
         // Check the possible values of lastKnown.
         int toPE = commData.receiver.lastKnown();
-        int toNode = CkNodeOf(toPE);
+        int toNode = CkNodeOfDiff(toPE);
         CkPrintf("\ntoPE = %d",toPE);
-        if(CkMyNode() != toNode && toNode!= -1) {
+        if(CkMyNodeDiff() != toNode && toNode!= -1) {
           ebytes[toNode] += commData.bytes;
         }
       }
     }
-    for(int i=0;i<CkNumNodes();i++)
-      CkPrintf("\n[PE-%d,Node-%d] ebytes[to node %d] = %lu", CkMyPe(), CkMyNode(), i, ebytes[i]);
-    sortArr(ebytes, CkNumNodes(), nbors);
-    CkPrintf("\n[PE-%d, node-%d], my largest comm neighbors are %d,%d\n", CkMyPe(), CkMyNode(), nbors[0], nbors[1]);
+    for(int i=0;i<CkNumNodesDiff();i++)
+      CkPrintf("\n[PE-%d,Node-%d] ebytes[to node %d] = %lu", CkMyPe(), CkMyNodeDiff(), i, ebytes[i]);
+    sortArr(ebytes, CkNumNodesDiff(), nbors);
+    CkPrintf("\n[PE-%d, node-%d], my largest comm neighbors are %d,%d\n", CkMyPe(), CkMyNodeDiff(), nbors[0], nbors[1]);
   }
 
-    if(step()==0 && CkMyPe()==CkNodeFirst(CkMyNode())) {
-    for(int i=0;i<CkNumNodes();i++) {
+    if(step()==0 && CkMyPe()==CkNodeFirstDiff(CkMyNodeDiff())) {
+    for(int i=0;i<CkNumNodesDiff();i++) {
       int isNbor = 0;
-      if(i != CkMyNode()){
+      if(i != CkMyNodeDiff()){
         for(int j=0;j<NUM_NEIGHBORS/2;j++) {
           if(nbors[j] == i) {
             isNbor = 1;
@@ -480,9 +503,9 @@ void DiffusionLB::ReceiveStats(CkMarshalledCLBStatsMessage &&data)
       }
   #if 1//DEBUG
 //      if(isNbor)
-        CkPrintf("\n[PE-%d], notifying node %d [PE-%d]\n", CkMyPe(), i, CkNodeFirst(i));
+        CkPrintf("\n[PE-%d], notifying node %d [PE-%d]\n", CkMyPe(), i, CkNodeFirstDiff(i));
   #endif
-      thisProxy[CkNodeFirst(i)].notifyNeighbor(isNbor, CkMyNode());
+      thisProxy[CkNodeFirstDiff(i)].notifyNeighbor(isNbor, CkMyNodeDiff());
     }
   } else
     doneNborExng();
@@ -594,14 +617,14 @@ void DiffusionLB::PseudoLoadBalancing() {
   DEBUGL(("[%d] GRD: Pseudo Load Balancing Sending, iteration %d totalUndeload %f totalOverLoad %f my_loadAfterTransfer %f\n", CkMyPe(), itr, totalUnderLoad, totalOverload, my_loadAfterTransfer));
   for(int i = 0; i < neighborCount; i++) {
     if(totalOverload > 0 && totalUnderLoad > 0 && thisIterToSend[i] > 0) {
-      CkPrintf("[%d] GRD: Pseudo Load Balancing Sending, iteration %d node %d(pe-%d) toSend %lf totalToSend %lf\n", CkMyPe(), itr, nbors[i], CkNodeFirst(nbors[i]), thisIterToSend[i], (thisIterToSend[i]*totalOverload)/totalUnderLoad);
+      CkPrintf("[%d] GRD: Pseudo Load Balancing Sending, iteration %d node %d(pe-%d) toSend %lf totalToSend %lf\n", CkMyPe(), itr, nbors[i], CkNodeFirstDiff(nbors[i]), thisIterToSend[i], (thisIterToSend[i]*totalOverload)/totalUnderLoad);
       thisIterToSend[i] *= totalOverload/totalUnderLoad;
       toSendLoad[i] += thisIterToSend[i];
     }
     if(my_load - thisIterToSend[i] < 0)
       CkAbort("Get out");
     my_load -= thisIterToSend[i];
-    thisProxy[CkNodeFirst(nbors[i])].PseudoLoad(itr, thisIterToSend[i], CkMyNode());
+    thisProxy[CkNodeFirstDiff(nbors[i])].PseudoLoad(itr, thisIterToSend[i], CkMyNodeDiff());
   }
 }
 
@@ -652,11 +675,11 @@ void DiffusionLB::LoadBalancing() {
     if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
       LDObjKey from = commData.sender;
       LDObjKey to = commData.receiver.get_destObj();
-      int fromNode = CkMyNode();//peNodes[nodeFirst]; //Originating from my node? - q
+      int fromNode = CkMyNodeDiff();//peNodes[nodeFirst]; //Originating from my node? - q
 
       // Check the possible values of lastKnown.
       int toPE = commData.receiver.lastKnown();
-      int toNode = CkNodeOf(toPE);
+      int toNode = CkNodeOfDiff(toPE);
       //store internal bytes in the last index pos ? -q
       if(fromNode == toNode) {
 //        int pos = neighborPos[toNode];
@@ -679,7 +702,7 @@ void DiffusionLB::LoadBalancing() {
         if(nborIdx == -1)
           nborIdx = EXT_IDX;//Store in last index if it is external bytes going to
 //        non-immediate neighbors? -q
-        if(fromNode == CkMyNode()/*peNodes[nodeFirst]*/) {//ensure bytes are going from my node? -q
+        if(fromNode == CkMyNodeDiff()/*peNodes[nodeFirst]*/) {//ensure bytes are going from my node? -q
           int fromObj = nodeStats->getHash(from);
           CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
           objectComms[fromObj][nborIdx] += commData.bytes;
@@ -704,7 +727,7 @@ void DiffusionLB::LoadBalancing() {
         actualSend++;
       }
     }
-    CkPrintf("\n[PE-%d,Node-%d]actualSend = %d", CkMyPe(), CkMyNode(), actualSend);
+    CkPrintf("\n[PE-%d,Node-%d]actualSend = %d", CkMyPe(), CkMyNodeDiff(), actualSend);
 
     if(actualSend > 0) {
 
@@ -783,7 +806,7 @@ void DiffusionLB::LoadBalancing() {
         if(maxi != -1) {
 #if 1
           migrates++;
-          int pos = neighborPos[CkNodeOf(nodeFirst)];
+          int pos = neighborPos[CkNodeOfDiff(nodeFirst)];
           internalAfter -= comm[pos];
           internalAfter += comm[maxi];
           externalAfter += comm[pos];
@@ -804,14 +827,14 @@ void DiffusionLB::LoadBalancing() {
           }
           int pe = GetPENumber(objId);
           migratedFrom[pe]++;
-          int initPE = CkNodeFirst(CkMyNode()) + pe;
+          int initPE = CkNodeFirstDiff(CkMyNodeDiff()) + pe;
           loadPE[pe] -= currLoad;
           numObjects[pe]--;
           CkPrintf("[%d] GRD: Load Balancing object load %f to node %d and from pe %d and objID %d\n", CkMyPe(), currLoad, node, initPE, objId);
           // TODO: Change this to directly send the load to zeroth PE
           //thisProxy[nodes[node]].LoadTransfer(currLoad, initPE, objId);
-          thisProxy[CkNodeFirst(CkMyNode())].LoadMetaInfo(nodeStats->objData[v_id].handle, currLoad);
-          thisProxy[initPE].LoadReceived(objId, CkNodeFirst(node));
+          thisProxy[CkNodeFirstDiff(CkMyNodeDiff())].LoadMetaInfo(nodeStats->objData[v_id].handle, currLoad);
+          thisProxy[initPE].LoadReceived(objId, CkNodeFirstDiff(node));
           my_loadAfterTransfer -= currLoad;
           int myPos = 0;//neighborPos[peNodes[nodeFirst]];
           loadNeighbors[myPos] -= currLoad;
@@ -997,7 +1020,7 @@ void DiffusionLB::MigrationEnded() {
 void DiffusionLB::CascadingMigration(LDObjHandle h, double load) {
     double threshold = THRESHOLD*avgLoadNeighbor/100.0;
     int minNode = -1;
-    int myPos = neighborPos[CkNodeOf(nodeFirst)];
+    int myPos = neighborPos[CkNodeOfDiff(nodeFirst)];
     if(actualSend > 0) {
         double minLoad;
         // Send to max underloaded node
@@ -1015,8 +1038,8 @@ void DiffusionLB::CascadingMigration(LDObjHandle h, double load) {
                 balanced[minNode] = false;
                 actualSend--; 
             }
-            thisProxy[CkNodeFirst(nbors[minNode])].LoadMetaInfo(h, load);
-	        lbmgr->Migrate(h,CkNodeFirst(nbors[minNode]));
+            thisProxy[CkNodeFirstDiff(nbors[minNode])].LoadMetaInfo(h, load);
+	        lbmgr->Migrate(h,CkNodeFirstDiff(nbors[minNode]));
         }
             
     }
@@ -1117,7 +1140,7 @@ void DiffusionLB::PrintDebugMessage(int len, double* result) {
         CkPrintf("Number of migrations across nodes %d \n", migrates);
         for(int i = 0; i < numNodes; i++) {
           CkPrintf("\nnodes[%d] = %d",i, i);
-          thisProxy[CkNodeFirst(i)].CallResumeClients();
+          thisProxy[CkNodeFirstDiff(i)].CallResumeClients();
         }
     }
     fflush(stdout);
@@ -1232,7 +1255,7 @@ void DiffusionLB::ResumeClients(CkReductionMsg *msg) {
 
 void DiffusionLB::CallResumeClients() {
     CmiAssert(_lb_args.debug());
-    CkPrintf("\n[PE-%d,Node-%d] GRD: Call Resume clients \n", CkMyPe(),CkMyNode());
+    CkPrintf("\n[PE-%d,Node-%d] GRD: Call Resume clients \n", CkMyPe(),CkMyNodeDiff());
     thisProxy[CkMyPe()].ResumeClients(finalBalancing);
 }
 
