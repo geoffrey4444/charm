@@ -287,6 +287,7 @@ void DiffusionLB::doneNborExng() {
 //  CkMarshalledCLBStatsMessage marshmsg(statsmsg);
 //  marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
 //  thisProxy[nodeFirst].ReceiveStats(*marshmsg);
+  if(CkMyPe() == CkNodeFirst(CkMyNode()))
   thisProxy[CkMyPe()].iterate();
 #endif
 }
