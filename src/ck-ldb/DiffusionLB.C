@@ -233,7 +233,7 @@ void DiffusionLB::PEStarted() {
 void DiffusionLB::AddNeighbor(int node) {
   toSend++;
 #if 1//DEBUG_K
-  CkPrintf("[PE-%d, Node-%d] My neighbors node %d\n", CkMyPe(), CkMyNodeDiff(), node);//, nodes[node]);
+  CkPrintf("[PE-%d, Node-%d] My %luth neighbor node is %d\n", CkMyPe(), CkMyNodeDiff(), sendToNeighbors.size(), node);
 #endif
   if(sendToNeighbors.size() > neighborCount)
     CkPrintf("\n[PE-%d,node-%d]Adding nbors (node-%d) beyond count!! %lu>(of expected count %d)\n", CkMyPe(), CkMyNodeDiff(), node, sendToNeighbors.size(), neighborCount);
@@ -372,6 +372,8 @@ void DiffusionLB::sortArr(long arr[], int n, int *nbors)
 
   // Sorting pair vector
   sort(vp.begin(), vp.end());
+  reverse(vp.begin(), vp.end());
+
   int found = 0;
   for(int i=0;i<CkNumNodesDiff();i++)
     if(CkMyNodeDiff()!=vp[i].second) //Ideally we shouldn't need to check this

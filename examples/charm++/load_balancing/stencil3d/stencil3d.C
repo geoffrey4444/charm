@@ -300,7 +300,7 @@ class Stencil: public CBase_Stencil {
       else {
         if(thisIndex.x == 0 && thisIndex.y == 0 && thisIndex.z == 0)
           startTime = CkWallTimer();
-        if(iterations % LBPERIOD_ITER == 0)
+        if(iterations == LBPERIOD_ITER)
         {
           AtSync();
         }
