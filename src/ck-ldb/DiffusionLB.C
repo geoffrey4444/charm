@@ -309,7 +309,7 @@ void DiffusionLB::doneNborExng() {
          nbor_nodes += "node-"+ std::to_string(nbors[i])+", ";
         AddNeighbor(nbors[i]);
       }
-      CkPrintf("\n[PE-%d,Node-%d] my neighbors: %s\n", CkMyPe(), CkMyNodeDiff(), nbor_nodes.c_str());
+      CkPrintf("\n[PE-%d,Node-%d] my neighbors: %s (#%d neighbors)\n", CkMyPe(), CkMyNodeDiff(), nbor_nodes.c_str(), neighborCount);
   }
 
   // send to parent
