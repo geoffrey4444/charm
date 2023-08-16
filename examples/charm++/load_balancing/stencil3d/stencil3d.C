@@ -144,6 +144,7 @@ class Stencil: public CBase_Stencil {
   public:
     int iterations;
     int imsg;
+    double load_time;
 
     std::vector<double> temperature;
     std::vector<double> new_temperature;
@@ -172,6 +173,10 @@ class Stencil: public CBase_Stencil {
     , backGhost(blockDimX*blockDimY)
     {
       usesAtSync = true;
+      usesAutoMeasure = false;
+      load_time = 1.0;
+      if(CkMyNode()==0)
+        load_time *= 10;
 
       constrainBC();
       // start measuring time
@@ -184,6 +189,7 @@ class Stencil: public CBase_Stencil {
       p|startTime;
       p|iterations;
       p|imsg;
+      p|load_time;
       p|temperature;
       p|new_temperature;
       p|leftGhost;
@@ -195,6 +201,11 @@ class Stencil: public CBase_Stencil {
     }
 
     Stencil(CkMigrateMessage* m) { }
+
+    void UserSetLBLoad() {
+      setObjTime(load_time);
+      //getObjTime()
+    }
 
     // Send ghost faces to the six neighbors
     void begin_iteration(void) {
