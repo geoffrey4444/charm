@@ -25,7 +25,7 @@
 #define DEBUGF(x) CmiPrintf x;
 #define DEBUGR(x) /*CmiPrintf x*/;
 #define DEBUGL(x) /*CmiPrintf x*/;
-#define NUM_NEIGHBORS 2
+#define NUM_NEIGHBORS 4
 #define ITERATIONS 4
 
 #define NODESIZE 2
@@ -675,8 +675,8 @@ void DiffusionLB::LoadBalancing() {
 
   for(int i = 0; i < n_objs; i++) {
 //    CkPrintf("\nPE-%d objid= %" PRIu64 ", vrtx id=%d", CkMyPe(), nodeStats->objData[i].objID(), objs[i].getVertexId());
-    objectComms[i].resize(neighborCount+1);
-    for(int j = 0; j < neighborCount+1; j++)
+    objectComms[i].resize(NUM_NEIGHBORS+1);
+    for(int j = 0; j < NUM_NEIGHBORS+1; j++)
       objectComms[i][j] = 0;
   }
 
