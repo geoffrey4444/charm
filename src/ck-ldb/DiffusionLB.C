@@ -482,7 +482,7 @@ void DiffusionLB::createNeighbors(){
     for(int i=0;i<CkNumNodesDiff();i++)
       nbors[i] = -1;
     neighborCount = NUM_NEIGHBORS/2;
-    CkPrintf("\nedges = %lu", nodeStats->commData.size());
+//    CkPrintf("\nedges = %lu", nodeStats->commData.size());
     for(int edge = 0; edge < nodeStats->commData.size(); edge++) {
       LDCommData &commData = nodeStats->commData[edge];
       if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
@@ -492,16 +492,16 @@ void DiffusionLB::createNeighbors(){
         // Check the possible values of lastKnown.
         int toPE = commData.receiver.lastKnown();
         int toNode = CkNodeOfDiff(toPE);
-        CkPrintf("\ntoPE = %d",toPE);
+//        CkPrintf("\ntoPE = %d",toPE);
         if(CkMyNodeDiff() != toNode && toNode!= -1) {
           ebytes[toNode] += commData.bytes;
         }
       }
     }
-    for(int i=0;i<CkNumNodesDiff();i++)
-      CkPrintf("\n[PE-%d,Node-%d] ebytes[to node %d] = %lu", CkMyPe(), CkMyNodeDiff(), i, ebytes[i]);
+//    for(int i=0;i<CkNumNodesDiff();i++)
+//      CkPrintf("\n[PE-%d,Node-%d] ebytes[to node %d] = %lu", CkMyPe(), CkMyNodeDiff(), i, ebytes[i]);
     sortArr(ebytes, CkNumNodesDiff(), nbors);
-    CkPrintf("\n[PE-%d, node-%d], my largest comm neighbors are %d,%d\n", CkMyPe(), CkMyNodeDiff(), nbors[0], nbors[1]);
+//    CkPrintf("\n[PE-%d, node-%d], my largest comm neighbors are %d,%d\n", CkMyPe(), CkMyNodeDiff(), nbors[0], nbors[1]);
   }
 
     if(step()==0 && CkMyPe()==CkNodeFirstDiff(CkMyNodeDiff())) {
