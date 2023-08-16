@@ -280,12 +280,16 @@ void DiffusionLB::ProcessAtSync()
 
  // CkMarshalledCLBStatsMessage *marshmsg;
 //  marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
-  
+ 
     // send to parent
   CkPrintf("[%d] Sending to parent #%d ReceiveStats\n", CkMyPe(), nodeFirst); fflush(stdout);
   CkMarshalledCLBStatsMessage marshmsg(statsmsg);
 //  marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
   thisProxy[nodeFirst].ReceiveStats(marshmsg);
+  if(CkMyPe() != nodeFirst) {
+    CkCallback cb(CkIndex_DiffusionLB::createNeighbors(), thisProxy);
+    contribute(cb);
+  }
 }
 
 void DiffusionLB::doneNborExng() {
@@ -466,6 +470,11 @@ void DiffusionLB::ReceiveStats(CkMarshalledCLBStatsMessage &&data)
   {
     // build LDStats
     BuildStats();
+    CkCallback cb(CkIndex_DiffusionLB::createNeighbors(), thisProxy);
+    contribute(cb);
+  }
+}
+void DiffusionLB::createNeighbors(){
     if(step() == 0 && CkMyPe()==CkNodeFirstDiff(CkMyNodeDiff())) {
     long ebytes[CkNumNodesDiff()];
     std::fill_n(ebytes, CkNumNodesDiff(), 0);
@@ -519,7 +528,7 @@ void DiffusionLB::ReceiveStats(CkMarshalledCLBStatsMessage &&data)
 //    thisProxy[CkMyPe()].iterate();
 
     // Graph Refinement: Generate neighbors, Send load to neighbors
-  }
+//  }
 #endif  
 }
 

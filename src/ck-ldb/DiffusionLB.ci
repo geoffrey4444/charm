@@ -7,6 +7,7 @@ module DiffusionLB {
   group DiffusionLB: DistBaseLB {
     entry void DiffusionLB(const CkLBOptions &);
     entry [reductiontarget] void PEStarted();
+    entry [reductiontarget] void createNeighbors();
     entry void AddNeighbor(int node);
     entry void AtSync(void);
     entry void ProcessAtSync(void);

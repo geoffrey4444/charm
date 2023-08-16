@@ -34,6 +34,7 @@ public:
     void MigratedHelper(LDObjHandle h, int waitBarrier);
     void Migrated(LDObjHandle h, int waitBarrier=1);
     void PEStarted();
+    void createNeighbors();
     void AddNeighbor(int node);
 //    void notifyNeighbor(int isNbor, int node);
     void doneNborExng();
