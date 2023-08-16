@@ -233,7 +233,7 @@ void DiffusionLB::PEStarted() {
 void DiffusionLB::AddNeighbor(int node) {
   toSend++;
 #if 1//DEBUG_K
-  CkPrintf("[PE-%d, Node-%d] My %luth neighbor node is %d\n", CkMyPe(), CkMyNodeDiff(), sendToNeighbors.size(), node);
+//  CkPrintf("[PE-%d, Node-%d] My %luth neighbor node is %d\n", CkMyPe(), CkMyNodeDiff(), sendToNeighbors.size(), node);
 #endif
   if(sendToNeighbors.size() > neighborCount)
     CkPrintf("\n[PE-%d,node-%d]Adding nbors (node-%d) beyond count!! %lu>(of expected count %d)\n", CkMyPe(), CkMyNodeDiff(), node, sendToNeighbors.size(), neighborCount);
@@ -302,7 +302,7 @@ void DiffusionLB::doneNborExng() {
       toReceiveLoad.resize(neighborCount);
       toSendLoad.resize(neighborCount);
       sendToNeighbors.reserve(neighborCount);
-      CkPrintf("\n[PE-%d] setting sendToNeighbors size to %d", CkMyPe(), neighborCount);
+//      CkPrintf("\n[PE-%d] setting sendToNeighbors size to %d", CkMyPe(), neighborCount);
       std::string nbor_nodes = " ";
       for(int i = 0; i < neighborCount; i++) {
         //Add your neighbors node-id as your neighbor
@@ -457,7 +457,7 @@ void DiffusionLB::ReceiveStats(CkMarshalledCLBStatsMessage &&data)
 #if CMK_LBDB_ON
   CLBStatsMsg *m = data.getMessage();
 #if 1//DEBUG_K
-  DEBUGF(("[%d] GRD ReceiveStats from pe %d\n", CkMyPe(), m->from_pe));
+//  DEBUGF(("[%d] GRD ReceiveStats from pe %d\n", CkMyPe(), m->from_pe));
 #endif
   CmiAssert(CkMyPe() == nodeFirst);
   // store the message
@@ -470,11 +470,6 @@ void DiffusionLB::ReceiveStats(CkMarshalledCLBStatsMessage &&data)
   {
     // build LDStats
     BuildStats();
-    CkCallback cb(CkIndex_DiffusionLB::createNeighbors(), thisProxy);
-    contribute(cb);
-  }
-}
-void DiffusionLB::createNeighbors(){
     if(step() == 0 && CkMyPe()==CkNodeFirstDiff(CkMyNodeDiff())) {
     long ebytes[CkNumNodesDiff()];
     std::fill_n(ebytes, CkNumNodesDiff(), 0);
@@ -503,6 +498,12 @@ void DiffusionLB::createNeighbors(){
     sortArr(ebytes, CkNumNodesDiff(), nbors);
 //    CkPrintf("\n[PE-%d, node-%d], my largest comm neighbors are %d,%d\n", CkMyPe(), CkMyNodeDiff(), nbors[0], nbors[1]);
   }
+  CkCallback cb(CkIndex_DiffusionLB::createNeighbors(), thisProxy);
+  contribute(cb);
+  }
+}
+
+void DiffusionLB::createNeighbors(){
 
     if(step()==0 && CkMyPe()==CkNodeFirstDiff(CkMyNodeDiff())) {
     for(int i=0;i<CkNumNodesDiff();i++) {
