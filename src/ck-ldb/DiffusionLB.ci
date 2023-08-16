@@ -36,7 +36,7 @@ module DiffusionLB {
       
       if(isNbor) {
         toAdd = 1;
-        CkPrintf("\n[PE-%d] going over %d nbors", CkMyPe(), neighborCount);
+//        CkPrintf("\n[PE-%d] going over %d nbors", CkMyPe(), neighborCount);
         for(int k=0;k<neighborCount;k++)
           if(nbors[k] == node) {
             toAdd = 0;
@@ -51,15 +51,15 @@ module DiffusionLB {
       }
       notif++;
       if(notif == CkNumNodesDiff()) {
-        for(int k=0;k<neighborCount;k++)
-          CkPrintf("\n[PE-%d], my largest comm %dth neighbors are %d\n", CkMyPe(), k, nbors[k]);
+//        for(int k=0;k<neighborCount;k++)
+//          CkPrintf("\n[PE-%d], my largest comm %dth neighbors are %d\n", CkMyPe(), k, nbors[k]);
 //        notif = 0;
         doneNborExng();
       } 
       else if(notif > CkNumNodesDiff())
         CkPrintf("\nToo many notificaations!! [PE-%d]", CkMyPe());
-      else
-        CkPrintf("\n[PE-%d,Node-%d] receieved %dth notification from node-%d", CkMyPe(), CkMyNodeDiff(), notif,node);
+//      else
+//        CkPrintf("\n[PE-%d,Node-%d] receieved %dth notification from node-%d", CkMyPe(), CkMyNodeDiff(), notif,node);
     }
     };
     
@@ -73,7 +73,7 @@ module DiffusionLB {
                   CkPrintf("\n---------------------------------------------------------------------------------------------\n");
 //                CkPrintf("\n[Node-%d], sendToNeighbors.size = %lu", CkMyNodeDiff(), neighborCount);
                 for(int i = 0; i < neighborCount; i++) {
-                    CkPrintf("\n[%d] itr-%d Sending load info to node-%d \n", CkMyPe(), itr, sendToNeighbors[i]);
+//                    CkPrintf("\n[%d] itr-%d Sending load info to node-%d \n", CkMyPe(), itr, sendToNeighbors[i]);
                     thisProxy[CkNodeFirstDiff(sendToNeighbors[i])].ReceiveLoadInfo(itr, my_load, CkMyNodeDiff());
                 }         
                  
@@ -85,11 +85,11 @@ module DiffusionLB {
                 {
                   //if(itr == 0 || itr == ITERATIONS-1)
                   {
-                    CkPrintf("\n[Pe-%d (node-%d) itr-%d] recvd load from node-%d\n",
-                                               CkMyPe(), CkMyNodeDiff(), itr, node);
+//                    CkPrintf("\n[Pe-%d (node-%d) itr-%d] recvd load from node-%d\n",
+//                                               CkMyPe(), CkMyNodeDiff(), itr, node);
                   }
                   int pos1 = findNborIdx(node);
-                  CkPrintf("\n[PE-%d]pos = %d(//%d)", CkMyPe(), pos1,neighborCount-1);
+//                  CkPrintf("\n[PE-%d]pos = %d(//%d)", CkMyPe(), pos1,neighborCount-1);
                   if(pos1 < 0 || pos1 >= CkNumNodesDiff())
                     CkPrintf("\nError in pos %d", pos1);
                   loadNeighbors[pos1] = load;
@@ -110,7 +110,7 @@ module DiffusionLB {
                                           CkMyPe(), itr, load, node, toSend);
                     my_load += load;
                     int pos = findNborIdx(node);
-                    CkPrintf("\n[PE-%d]pos = %d", CkMyPe(), pos);
+//                    CkPrintf("\n[PE-%d]pos = %d", CkMyPe(), pos);
                     if(pos < 0 || pos >= CkNumNodesDiff())
                       CkPrintf("\nError in pos %d", pos);
                     toReceiveLoad[pos] += load;
@@ -127,7 +127,7 @@ module DiffusionLB {
             if(res || _lb_args.debug()) {
                 LoadBalancing();
             }
-            CkPrintf("\n[PE-%d,node-%d]Calling DoneNodeLB", CkMyPe(), CkMyNodeDiff());
+//            CkPrintf("\n[PE-%d,node-%d]Calling DoneNodeLB", CkMyPe(), CkMyNodeDiff());
             DoneNodeLB();
             my_load = my_loadAfterTransfer;
         }

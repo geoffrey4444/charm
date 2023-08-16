@@ -282,7 +282,7 @@ void DiffusionLB::ProcessAtSync()
 //  marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
  
     // send to parent
-  CkPrintf("[%d] Sending to parent #%d ReceiveStats\n", CkMyPe(), nodeFirst); fflush(stdout);
+//  CkPrintf("[%d] Sending to parent #%d ReceiveStats\n", CkMyPe(), nodeFirst); fflush(stdout);
   CkMarshalledCLBStatsMessage marshmsg(statsmsg);
 //  marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
   thisProxy[nodeFirst].ReceiveStats(marshmsg);
@@ -313,7 +313,7 @@ void DiffusionLB::doneNborExng() {
   }
 
   // send to parent
-  CkPrintf("[%d] Sending to parent #%d ReceiveStats\n", CkMyPe(), nodeFirst); fflush(stdout);
+//  CkPrintf("[%d] Sending to parent #%d ReceiveStats\n", CkMyPe(), nodeFirst); fflush(stdout);
 //  CkMarshalledCLBStatsMessage marshmsg(statsmsg);
 //  marshmsg = new CkMarshalledCLBStatsMessage(statsmsg);
 //  thisProxy[nodeFirst].ReceiveStats(*marshmsg);
@@ -517,7 +517,7 @@ void DiffusionLB::createNeighbors(){
       }
   #if 1//DEBUG
 //      if(isNbor)
-        CkPrintf("\n[PE-%d], notifying node %d [PE-%d]\n", CkMyPe(), i, CkNodeFirstDiff(i));
+//        CkPrintf("\n[PE-%d], notifying node %d [PE-%d]\n", CkMyPe(), i, CkNodeFirstDiff(i));
   #endif
       thisProxy[CkNodeFirstDiff(i)].notifyNeighbor(isNbor, CkMyNodeDiff());
     }
@@ -643,7 +643,7 @@ void DiffusionLB::PseudoLoadBalancing() {
 }
 
 int DiffusionLB::findNborIdx(int node) {
-  CkPrintf("\n[PE-%d]Looking for node %d in nbor array of size %lu", CkMyPe(), node, sendToNeighbors.size());
+//  CkPrintf("\n[PE-%d]Looking for node %d in nbor array of size %lu", CkMyPe(), node, sendToNeighbors.size());
   for(int i=0;i<sendToNeighbors.size();i++)
     if(sendToNeighbors[i] == node)
       return i;
