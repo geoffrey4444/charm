@@ -299,10 +299,13 @@ void DiffusionLB::doneNborExng() {
       toSendLoad.resize(neighborCount);
       sendToNeighbors.reserve(neighborCount);
       CkPrintf("\n[PE-%d] setting sendToNeighbors size to %d", CkMyPe(), neighborCount);
+      std::string nbor_nodes = " ";
       for(int i = 0; i < neighborCount; i++) {
         //Add your neighbors node-id as your neighbor
+         nbor_nodes += "node-"+ std::to_string(nbors[i])+", ";
         AddNeighbor(nbors[i]);
       }
+      CkPrintf("\n[PE-%d,Node-%d] my neighbors: %s\n", CkMyPe(), CkMyNodeDiff(), nbor_nodes.c_str());
   }
 
   // send to parent
