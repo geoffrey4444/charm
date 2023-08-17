@@ -676,16 +676,13 @@ void DiffusionLB::LoadBalancing() {
   gain_val = new int[n_objs];
   memset(gain_val, -1, n_objs);
 
-  CkPrintf("\n[PE-%d] n_objs=%d", CkMyPe(), n_objs);
 
   for(int i = 0; i < n_objs; i++) {
-//    CkPrintf("\nPE-%d objid= %" PRIu64 ", vrtx id=%d", CkMyPe(), nodeStats->objData[i].objID(), objs[i].getVertexId());
-    objectComms[i].resize(NUM_NEIGHBORS+1);
-    for(int j = 0; j < NUM_NEIGHBORS+1; j++)
+    objectComms[i].resize(NUM_NEIGHBORS+2);
+    for(int j = 0; j < NUM_NEIGHBORS+2; j++)
       objectComms[i][j] = 0;
   }
 
-  // TODO: Set objectComms to zero initially
   int obj = 0;
   for(int edge = 0; edge < nodeStats->commData.size(); edge++) {
     LDCommData &commData = nodeStats->commData[edge];
@@ -694,15 +691,14 @@ void DiffusionLB::LoadBalancing() {
     if( (!commData.from_proc()) && (commData.recv_type()==LD_OBJ_MSG) ) {
       LDObjKey from = commData.sender;
       LDObjKey to = commData.receiver.get_destObj();
-      int fromNode = CkMyNodeDiff();//peNodes[nodeFirst]; //Originating from my node? - q
+      int fromNode = CkMyNodeDiff();
 
       // Check the possible values of lastKnown.
       int toPE = commData.receiver.lastKnown();
       int toNode = CkNodeOfDiff(toPE);
       //store internal bytes in the last index pos ? -q
       if(fromNode == toNode) {
-//        int pos = neighborPos[toNode];
-        int nborIdx = SELF_IDX;// why self id?
+        int nborIdx = SELF_IDX;
         int fromObj = nodeStats->getHash(from);
         int toObj = nodeStats->getHash(to);
         //DEBUGR(("[%d] GRD Load Balancing from obj %d and to obj %d and total objects %d\n", CkMyPe(), fromObj, toObj, nodeStats->n_objs));
@@ -715,15 +711,14 @@ void DiffusionLB::LoadBalancing() {
         else
           externalBefore += commData.bytes;
       }
-      else { // External communication? - q
+      else { // External communication
         externalBefore += commData.bytes;
         int nborIdx = findNborIdx(toNode);
         if(nborIdx == -1)
-          nborIdx = EXT_IDX;//Store in last index if it is external bytes going to
-//        non-immediate neighbors? -q
-        if(fromNode == CkMyNodeDiff()/*peNodes[nodeFirst]*/) {//ensure bytes are going from my node? -q
+          nborIdx = EXT_IDX;//Store in last index if it is external bytes going to non-immediate neighbors
+        else {
           int fromObj = nodeStats->getHash(from);
-          CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
+          //CkPrintf("[%d] GRD Load Balancing from obj %d and pos %d\n", CkMyPe(), fromObj, nborIdx);
           objectComms[fromObj][nborIdx] += commData.bytes;
           obj++;
         }
