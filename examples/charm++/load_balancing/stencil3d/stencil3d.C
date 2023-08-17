@@ -175,7 +175,7 @@ class Stencil: public CBase_Stencil {
       usesAtSync = true;
       usesAutoMeasure = false;
       load_time = 1.0;
-      if(CkMyNode()==0)
+      if(CkMyPe()<2)
         load_time *= 10;
 
       constrainBC();

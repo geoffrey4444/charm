@@ -606,7 +606,11 @@ void DiffusionLB::InitializeObjHeap(BaseLB::LDStats *stats, int* obj_arr,int n,
 }
 
 void DiffusionLB::PseudoLoadBalancing() {
-  CkPrintf("[PE-%d] Pseudo Load Balancing , iteration %d my_load %f my_loadAfterTransfer %f avgLoadNeighbor %f\n", CkMyPe(), itr, my_load, my_loadAfterTransfer, avgLoadNeighbor);
+  std::string nbor_nodes_load = " ";
+  for(int i = 0; i < neighborCount; i++) {
+    nbor_nodes_load += " node-"+ std::to_string(nbors[i])+"'s load= "+std::to_string(loadNeighbors[i]);
+  }
+  CkPrintf("[PE-%d, Node-%d] Pseudo Load Balancing , iteration %d my_load %f my_loadAfterTransfer %f avgLoadNeighbor %f (split = %s)\n", CkMyPe(), CkMyNodeDiff(), itr, my_load, my_loadAfterTransfer, avgLoadNeighbor, nbor_nodes_load.c_str());
   double threshold = THRESHOLD*avgLoadNeighbor/100.0;
   
   double totalOverload = my_load - avgLoadNeighbor;
