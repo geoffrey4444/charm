@@ -26,7 +26,7 @@
 #define DEBUGR(x) /*CmiPrintf x*/;
 #define DEBUGL(x) /*CmiPrintf x*/;
 #define NUM_NEIGHBORS 4
-#define ITERATIONS 4
+#define ITERATIONS 20
 
 #define NODESIZE 2
 
@@ -613,8 +613,8 @@ void DiffusionLB::PseudoLoadBalancing() {
   CkPrintf("[PE-%d, Node-%d] Pseudo Load Balancing , iteration %d my_load %f my_loadAfterTransfer %f avgLoadNeighbor %f (split = %s)\n", CkMyPe(), CkMyNodeDiff(), itr, my_load, my_loadAfterTransfer, avgLoadNeighbor, nbor_nodes_load.c_str());
   double threshold = THRESHOLD*avgLoadNeighbor/100.0;
   
-  double totalOverload = my_load - avgLoadNeighbor;
   avgLoadNeighbor = (avgLoadNeighbor+my_load)/2;
+  double totalOverload = my_load - avgLoadNeighbor;
   double totalUnderLoad = 0.0;
   double thisIterToSend[neighborCount];
   for(int i = 0 ;i < neighborCount; i++)
