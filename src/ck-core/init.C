@@ -1149,6 +1149,7 @@ static void _nullFn(void *, void *)
 }
 
 extern void _registerLBManager(void);
+extern void _registerDiffusion(void);
 extern void _registerTreeLevel(void);
 extern void _registerMetaBalancer(void);
 extern void _registerPathHistory(void);
@@ -1514,6 +1515,7 @@ void _initCharm(int unused_argc, char **argv)
 		_registerCkArray();
 		_registerCkSyncBarrier();
 		_registerLBManager();
+    _registerDiffusion();
 		_registerTreeLevel();
     _registerMetaBalancer();
 		_registerCkCallback();

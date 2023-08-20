@@ -45,6 +45,7 @@ endif()
 
 set(ldb-cxx-sources
     ../ck-ldb/CommonLBs.C  ../ck-ldb/DistributedLB.C
+    ../ck-ldb/Diffusion.C
     ../ck-ldb/DiffusionLB.C
     ../ck-ldb/EveryLB.C
     ../ck-ldb/LButil.C
@@ -57,6 +58,7 @@ set(ldb-cxx-sources
 
 set(ldb-h-sources ../ck-ldb/BaseLB.h ../ck-ldb/CentralLBMsg.h
     ../ck-ldb/DistBaseLB.h ../ck-ldb/DistributedLB.h
+    ../ck-ldb/Diffusion.h
     ../ck-ldb/DiffusionLB.h
     ../ck-ldb/HybridBaseLB.h ../ck-ldb/HybridLBMsg.h
     ../ck-ldb/LBComm.h
@@ -106,8 +108,10 @@ add_dependencies(moduleMetisLB ck ckmetis)
 # Single LBs
 add_library(moduleDistributedLB ../ck-ldb/DistributedLB.C)
 add_dependencies(moduleDistributedLB ck)
+add_library(moduleDiffusion ../ck-ldb/Diffusion.C ../ck-ldb/Diffusion.h)
+add_dependencies(moduleDiffusion ck)
 add_library(moduleDiffusionLB ../ck-ldb/DiffusionLB.C ../ck-ldb/DiffusionLB.h)
-add_dependencies(moduleDiffusionLB ck)
+add_dependencies(moduleDiffusionLB ck moduleDiffusion)
 add_library(moduleTreeLB ../ck-ldb/TreeLB.C)
 add_dependencies(moduleTreeLB ck)
 add_library(moduleRecBipartLB ../ck-ldb/RecBipartLB.C ../ck-ldb/RecBipartLB.h)

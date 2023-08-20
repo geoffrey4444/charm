@@ -59,7 +59,7 @@ int myrand(int numpes) {
 
 #define index(a,b,c)    ((a)+(b)*(blockDimX+2)+(c)*(blockDimX+2)*(blockDimY+2))
 
-#define MAX_ITER         100
+#define MAX_ITER         10//0
 #define LBPERIOD_ITER    5     // LB is called every LBPERIOD_ITER number of program iterations
 #define CHANGELOAD       30
 #define LEFT             1
@@ -176,7 +176,7 @@ class Stencil: public CBase_Stencil {
       usesAutoMeasure = false;
       load_time = 1.0;
       if(CkMyPe()<2)
-        load_time *= 10;
+        load_time *= 20;
 
       constrainBC();
       // start measuring time
@@ -311,7 +311,7 @@ class Stencil: public CBase_Stencil {
       else {
         if(thisIndex.x == 0 && thisIndex.y == 0 && thisIndex.z == 0)
           startTime = CkWallTimer();
-        if(iterations == LBPERIOD_ITER)
+        if(iterations % LBPERIOD_ITER == 0)
         {
           AtSync();
         }

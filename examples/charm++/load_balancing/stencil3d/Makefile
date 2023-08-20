@@ -7,7 +7,7 @@ OBJS = stencil3d.o
 all: stencil3d
 
 stencil3d: $(OBJS)
-	$(CHARMC) -language charm++ -module DiffusionLB -o stencil3d $(OBJS)
+	$(CHARMC) -language charm++ -module DiffusionLB,Diffusion -o stencil3d $(OBJS)
 
 projections: $(OBJS)
 	$(CHARMC) -language charm++ -module CommonLBs -tracemode projections -lz -o stencil3d.prj $(OBJS)

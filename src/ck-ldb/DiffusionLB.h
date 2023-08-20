@@ -18,6 +18,8 @@
 
 #include "DiffusionLB.decl.h"
 
+using std::vector;
+
 void CreateDiffusionLB();
 
 /// for backward compatibility
@@ -33,7 +35,10 @@ public:
     static void staticMigrated(void* me, LDObjHandle h, int waitBarrier);
     void MigratedHelper(LDObjHandle h, int waitBarrier);
     void Migrated(LDObjHandle h, int waitBarrier=1);
-    void PEStarted();
+    void MaxLoad(double val);
+    void AvgLoad(double val);
+    void SumIntBytes(long val);
+    void SumExtBytes(long val);
     void createNeighbors();
     void AddNeighbor(int node);
 //    void notifyNeighbor(int isNbor, int node);
@@ -41,6 +46,28 @@ public:
     void sortArr(long arr[], int n, int *nbors);
     void AtSync(void); // Everything is at the PE barrier
     void ProcessAtSync(void);
+    static void rLB(void* p){
+//      CkPrintf("\nResuming on PE-%d", CkMyPe());
+      ((DiffusionLB *)p)->resumeLB();
+    }
+    void resumeLB() {
+
+        // Calculate the aggregate load that has to be sent.
+        //serial {
+            bool res = AggregateToSend();
+            actualSend = 0;
+            // Only if this node should send load, call load balancing
+            //if(res || _lb_args.debug())
+            {
+                LoadBalancing();
+            }
+//            DEBUGL(("\n[PE-%d,node-%d]Calling DoneNodeLB", CkMyPe(), CkMyNodeDiff());
+//            DoneNodeLB();
+            //DoneNodeLB();
+            //my_load = my_loadAfterTransfer;
+       // }
+    };
+  
 
     //void ReceiveLoadInfo(int itr, double load, int node);
     void MigrationDone();  // Call when migration is complete
@@ -59,8 +86,9 @@ public:
     void ResumeClients(CkReductionMsg *msg);
     void ResumeClients(int balancing);
     void CallResumeClients();
-    void PrintDebugMessage(int len, double* result);
     void LoadMetaInfo(LDObjHandle h, double load);
+    void collectStats(int nodeId, long internalBytes, long externalBytes);
+    void continueLB();
 protected:
     virtual bool QueryBalanceNow(int) { return true; };  
 
@@ -73,6 +101,7 @@ private:
     int notif;
     int statsReceived;
     int loadReceived;
+    long internalBytes, externalBytes;
     int *nbors;
     CLBStatsMsg* statsmsg;
     CkMarshalledCLBStatsMessage *marshmsg;
@@ -82,26 +111,25 @@ private:
     std::vector<int> numObjects;
     std::vector<int> prefixObjects;
     std::vector<double> loadPE;
-    std::vector<double> loadPEBefore;
     
     std::vector<int> neighbors; // Neighbors which the node uses to make load balancing decisions
-    std::vector<double> loadNeighbors;
+//    std::vector<double> loadNeighbors;
+    double *loadNeighbors;
     std::vector<int> sendToNeighbors; // Neighbors to which curr node has to send load.
-    int toSend;
     std::unordered_map<int, int> neighborPos;  // nodes position in the neighbors vector
     int neighborCount;
     std::unordered_map<int, int> neighborPosReceive;  // nodes position in the neighbors vector
-    std::vector<double> toSendLoad;
-    std::vector<double> toReceiveLoad;
+    double* toSendLoad;
+    double* toReceiveLoad;
 
     // Information to send to neighbor nodes
     LDObjKey* nodeKeys;
     double my_load;
+    double local_pe_load;
     double my_loadAfterTransfer;
 
     // Load information received from neighbor node
     std::vector<std::vector<LDObjKey>> neighborKeys;
-    int londReceived;
 
     double b_load;
     double avgLoadNeighbor;  // Average load of the neighbor group
@@ -118,11 +146,10 @@ private:
     int nodeFirst;
     int nodeSize;
     int numNodes;
-//    std::unordered_map<int, int> peNodes;
-//    std::vector<int> nodes;
 
     int actualSend;
     std::vector<bool> balanced;
+    vector<vector<int>> objectComms;
     
     // migration
     int total_migrates;
@@ -135,32 +162,15 @@ private:
     std::vector<int> migratedFrom;
     bool entered;
     int finalBalancing;
+    int received_nodes;
 
     //stats
     double strat_end_time;
     double start_lb_time;
     double end_lb_time;
-    // debug messages vars and functions.
-    // load
-    double maxB;
-    double minB;
-    double avgB;
-    double maxA;
-    double minA;
-    double avgA;
-    int maxPEB;
-    int maxPEA;
-    int minPEB;
-    int minPEA;
-    // communication
-    double internalBefore;
-    double externalBefore;
-    double internalAfter;
-    double externalAfter;
-    double internalBeforeFinal;
-    double externalBeforeFinal;
-    double internalAfterFinal;
-    double externalAfterFinal;
+
+    //load and communication
+    double global_avg_load;
     int receivedStats;
     int migrates; // number of objects migrated across node
     int migratesNode; // number of objects migrated within node   
@@ -172,16 +182,10 @@ private:
     void CascadingMigration(LDObjHandle h, double load);
 
     // helper functions
-//    std::vector<TCoord> coord_table;
-//    std::vector<TCoord*> peToCoords;
-    bool preprocessingDone;
-//    std::vector< std::vector<TCoord*> > closest_coords;
     int GetPENumber(int& obj_id);
-    void preprocess(const int explore_limit);
     bool AggregateToSend();
     
     void InitLB(const CkLBOptions &);
-//    void Strategy(const BaseLB::LDStats* const stats);
     void Strategy(const DistBaseLB::LDStats* const stats);
     
     // Heap functions
