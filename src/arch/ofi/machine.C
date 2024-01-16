@@ -1526,7 +1526,7 @@ void LrtsPreCommonInit(int everReturn)
 
 #if USE_MEMPOOL
     CpvInitialize(mempool_type*, mempool);
-    CpvInitialize(struct fid_mr *, mempool_mr_key);
+
     CpvAccess(mempool) = mempool_init(context.mempool_init_size,
                                       alloc_mempool_block,
                                       free_mempool_block,
@@ -1692,7 +1692,8 @@ void LrtsFree(void *msg)
       }
     else
 #if CMK_SMP
-        mempool_free_thread(msg);
+      mempool_free_thread(msg);
+    //mempool_free(msg);
     //	fi_close(); the MR that we're tracking somehow
 #else
         mempool_free(CpvAccess(mempool), msg);
