@@ -9,6 +9,9 @@
 #include "gni_pub.h"
 #include "pmi.h"
 typedef gni_mem_handle_t mem_handle_t;
+#elif CMK_OFI_CXI
+#include "rdma/fi_domain.h"
+typedef struct fid_mr* mem_handle_t;
 #else
 // in uGNI, it is memory handler, other versions, this is an integer
 // a unique integer to represent the memory block
