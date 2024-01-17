@@ -190,7 +190,7 @@ then
     #use srun
     # srun in a cray-shasta environment should support --mpi=cray-shasta regardless, the question here is how this charm was built
     # assume built with craype  if that is loaded
-    craype=`module -t list craype | grep craype`
+    craype=`module -t list craype 2>&1 | grep craype`
     if [[ $? -eq 0 ]]
     then
 	runCmd srun --mpi=cray_shasta -n "$nodes" "${args[@]}"
