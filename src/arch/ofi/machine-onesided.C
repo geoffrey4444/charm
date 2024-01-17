@@ -3,7 +3,8 @@ void registerDirectMemory(void *info, const void *addr, int size) {
   uint64_t requested_key = 0;
   int err;
 
-  if(FI_MR_SCALABLE == context.mr_mode) {
+  if((FI_MR_SCALABLE == context.mr_mode) ||
+     (FI_MR_ENDPOINT & context.mr_mode)) {
     requested_key = __sync_fetch_and_add(&(context.mr_counter), 1);
   }
   err = fi_mr_reg(context.domain,
