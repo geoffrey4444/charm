@@ -29,10 +29,13 @@
  *     functions and data structures.
  *
  * - Change to explicit memory registration to support FI_MR_ENDPOINT
- *  - Message (and any DMA source or target) memory must be pinned,
+ *  - Message (and any RMA source or target) memory must be pinned,
  *     bound to the endpoint, and then enabled before use.
  *
  *  - Maintain local MR key sequencing for registered memory
+ *  - Set aside the 0-49 range for special use.
+ *   0 - posted receives for eager protocol
+ *   50 - base of memory pool
  *
  *  - Support CXI extensions restricted to optimized MRs in the 0-99
  *     range with to be determined partitioning of that range.
@@ -83,8 +86,6 @@
 /* ======= This where we define the macros for the 0-99 special MRs ====== */
 
 #define OFI_POSTED_RECV_MR_KEY 0
-#define OFI_POOL_MR_KEY 1
-#define OFI_POOL_RECV_MR_KEY 2
 
 /* =======End of Definitions of Performance-Specific Macros =======*/
 
@@ -139,11 +140,11 @@
 void* LrtsPoolAlloc(int n_bytes);
 
 #include "mempool.h"
-#define MEMPOOL_INIT_SIZE_MB_DEFAULT   64
+#define MEMPOOL_INIT_SIZE_MB_DEFAULT   32
 #define MEMPOOL_EXPAND_SIZE_MB_DEFAULT 4
-#define MEMPOOL_MAX_SIZE_MB_DEFAULT    1024
+#define MEMPOOL_MAX_SIZE_MB_DEFAULT    4096
 #define MEMPOOL_LB_DEFAULT             1
-#define MEMPOOL_RB_DEFAULT             67108864
+#define MEMPOOL_RB_DEFAULT             1073741824
 #define ONE_MB                         1048576
 
 CpvDeclare(mempool_type*, mempool);
@@ -509,7 +510,7 @@ OFI_INFO("requested mr mode & mr_mode: 0x%x\n", (FI_MR_ENDPOINT| FI_MR_ALLOCATED
     // the old code path uses the defunct enum
     context.mr_mode = static_cast<fi_mr_mode>(prov->domain_attr->mr_mode);
 #endif
-    // start at 50 for the non-optimizable things like out of pool messages
+    // start at 50 for the normal stuff, like pool messages
     context.mr_counter = 50;
     OFI_INFO("maximum rma size: %ld\n", context.rma_maxsize);
     OFI_INFO("mr mode: 0x%x\n", context.mr_mode);
@@ -1642,8 +1643,7 @@ void* LrtsAlloc(int n_bytes, int header)
       {
         ALIGNED_ALLOC(ptr, size);
 #ifdef CMK_OFI_CXI
-	uint32_t      requested_key = OFI_POOL_MR_KEY;
-	requested_key = __sync_fetch_and_add(&(context.mr_counter), 1);
+	uint32_t      requested_key = __sync_fetch_and_add(&(context.mr_counter), 1);
 
 	// bind and enable the MR
 	struct fid_mr *mr;
