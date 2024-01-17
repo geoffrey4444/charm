@@ -519,7 +519,7 @@ OFI_INFO("requested mr mode & mr_mode: 0x%x\n", (FI_MR_ENDPOINT| FI_MR_ALLOCATED
 
 
 #ifdef CMK_OFI_CXI
-if ((context.mr_mode & (FI_MR_ENDPOINT|FI_MR_ALLOCATED))==0)
+if ((context.mr_mode & FI_MR_ENDPOINT)==0)
       CmiAbort("OFI::LrtsInit::Unsupported MR mode FI_MR_ENDPOINT");
 #else
     /* keeping this for now, should debug this on a non-cray and make
@@ -571,6 +571,7 @@ if ((context.mr_mode & (FI_MR_ENDPOINT|FI_MR_ALLOCATED))==0)
      */
     ret = fi_fabric(prov->fabric_attr, &context.fabric, NULL);
     if (ret < 0) {
+      	MACHSTATE1(3, "fi_fabric error: %d\n", ret);
         fi_freeinfo(providers);
         CmiAbort("OFI::LrtsInit::fi_fabric error");
     }
@@ -582,6 +583,7 @@ if ((context.mr_mode & (FI_MR_ENDPOINT|FI_MR_ALLOCATED))==0)
      */
     ret = fi_domain(context.fabric, prov, &context.domain, NULL);
     if (ret < 0) {
+      	MACHSTATE1(3, "fi_domain error: %d\n", ret);
         fi_freeinfo(providers);
         CmiAbort("OFI::LrtsInit::fi_domain error");
     }
@@ -597,8 +599,9 @@ if ((context.mr_mode & (FI_MR_ENDPOINT|FI_MR_ALLOCATED))==0)
                       &context.ep,    /* Out: Endpoint object */
                       NULL);          /* Optional context     */
     if (ret < 0) {
+      	MACHSTATE1(3, "fi_endpoint error: %d\n", ret);
         fi_freeinfo(providers);
-        CmiAbort("OFI::LrtsInit::fi_endpoint error");
+        CmiAbort("OFI::LrtsInit::fi_endpoint error %d", ret);
     }
 
     /**
