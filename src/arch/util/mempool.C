@@ -110,6 +110,7 @@ INLINE_KEYWORD void fillblock(mempool_type* mptr, block_header* block_head, size
       {
         ((slot_header*)((char*)mptr + prev))->gnext = block_head->freelists[i];
       }
+      DEBUG_PRINT("Pow %d size %ld addr %p offset %ld block_head->freelists[i]=%p\n", head->power, head->size, head, head- (slot_header*)((char *)mptr), block_head->freelists[i]);
       prev = block_head->freelists[i];
     }
   }
@@ -223,6 +224,7 @@ void removeblocks(mempool_type* mptr)
     }
   }
 }
+
 
 /** initialize mempool */
 mempool_type* mempool_init(size_t pool_size, mempool_newblockfn allocfn, mempool_freeblock freefn, size_t limit)

@@ -25,20 +25,35 @@
  * Date : 2024-01-04
  * Author: Eric Bohm
  *
- * - Update the OFI version to 1.15.2 along with pertinent changes to
- *     functions and data structures.
+ * * Add support for CXI extensions for Cassini (AKA Slingshot-11)
  *
- * - Change to explicit memory registration to support FI_MR_ENDPOINT
- *  - Message (and any RMA source or target) memory must be pinned,
- *     bound to the endpoint, and then enabled before use.
+ * - CXI required FI_MR_ENDPOINT
  *
- *  - Maintain local MR key sequencing for registered memory
- *  - Set aside the 0-49 range for special use.
- *   0 - posted receives for eager protocol
- *   50 - base of memory pool
+ *  1) Which requires that all message memory be: registered, bound to
+ *     the endpoint, and activated before use.
  *
- *  - Support CXI extensions restricted to optimized MRs in the 0-99
- *     range with to be determined partitioning of that range.
+ *  2) CXI supporting endpoint must be selected for in fi_getinfo
+ *
+ *  3) CXI is not optimized for within node communication, so process
+ *  to process schemes, i.e., XPMEM or CMA are on by default and we
+ *  would not expected disabling them to be functional, let alone
+ *  optimal.
+ *
+ *  4) Memory requirements add tracking for the memory registration
+ *  key. This is kept in a prefix header for each allocated buffer.
+ *  Most use cases are managed by the memory pool, which is also on by
+ *  default.
+ *
+ *  5) CXI comes with FI_MR_VIRT_ADDR=0, which means RMA transactions
+ *  require both the key and the offset from the base address of the
+ *  allocated buffer associated with that key.
+ *
+ *  6) We update to the build time environment version of libfabric
+ *  instead of forcing 1.0.  (e.g. libfabric 1.15.2.0 at time of writing)
+ *
+ *  7) CXI defines that memory keys 0-99 support CXI optimized
+ *  operations (such as reductions, or reducing depency on delivery
+ *  ordering ).  We set aside 0-50 for TBD use and build up from 51.
  *
  * Runtime options:
  *  +ofi_eager_maxsize: (default: 65536) Threshold between buffered and RMA
@@ -126,32 +141,56 @@
 #include "runtime-pmix.C"
 #endif
 
-#ifdef CMK_OFI_CXI
+#if CMK_OFI_CXI
   /** use mempools in CXI to aggregate FI_MR_ENDPOINT registration reqs into big blocks */
+#define oneMB (1024ll*1024)
+#define oneGB (1024ll*1024*1024)
+#define ALIGN64(x)       (size_t)((~63)&((x)+63))
+#define ALIGNHUGEPAGE(x)   (size_t)((~(_tlbpagesize-1))&((x)+_tlbpagesize-1))
+
 #define USE_MEMPOOL 1
-//#define USE_MEMPOOL_RECV 1
+#define LARGEPAGE 0
 #else
 #define USE_MEMPOOL 0
-#define USE_MEMPOOL_RECV 0
 #endif
+static int _tlbpagesize = 4096;
+#if USE_MEMPOOL
+#if LARGEPAGE
+// separate pool of memory mapped huge pages
+static CmiInt8 BIG_MSG  =  16*oneMB;
+static CmiInt8 ONE_SEG  =  4*oneMB;
+#else
+static CmiInt8 BIG_MSG  =  8*oneMB;
+static CmiInt8 ONE_SEG  =  2*oneMB;
+#endif
+
 
 #if USE_MEMPOOL
 
 void* LrtsPoolAlloc(int n_bytes);
 
 #include "mempool.h"
-#define MEMPOOL_INIT_SIZE_MB_DEFAULT   32
-#define MEMPOOL_EXPAND_SIZE_MB_DEFAULT 4
-#define MEMPOOL_MAX_SIZE_MB_DEFAULT    4096
-#define MEMPOOL_LB_DEFAULT             1
-#define MEMPOOL_RB_DEFAULT             1073741824
+#define MEMPOOL_INIT_SIZE_MB_DEFAULT   4
+#define MEMPOOL_EXPAND_SIZE_MB_DEFAULT 20
+#define MEMPOOL_MAX_SIZE_MB_DEFAULT    32
+#define MEMPOOL_LB_DEFAULT             0
+#define MEMPOOL_RB_DEFAULT             134217728
 #define ONE_MB                         1048576
+#define ALIGNBUF (sizeof(mempool_header)+sizeof(CmiChunkHeader))
+#define   GetMempoolBlockPtr(x)   MEMPOOL_GetBlockPtr(MEMPOOL_GetMempoolHeader(x,ALIGNBUF))
+#define   GetMempoolPtr(x)        MEMPOOL_GetMempoolPtr(MEMPOOL_GetMempoolHeader(x,ALIGNBUF))
+
+#define   GetMempoolsize(x)       MEMPOOL_GetSize(MEMPOOL_GetMempoolHeader(x,ALIGNBUF))
+#define   GetMemHndl(x)           MEMPOOL_GetMemHndl(MEMPOOL_GetMempoolHeader(x,ALIGNBUF))
+
+#define   GetMemHndlFromBlockHeader(x) MEMPOOL_GetBlockMemHndl(x)
+#define   GetSizeFromBlockHeader(x)    MEMPOOL_GetBlockSize(x)
+#define   GetBaseAllocPtr(x) GetMempoolBlockPtr(x)
+#define   GetMemOffsetFromBase(x) ((char*)(x) - (char *) GetBaseAllocPtr(x))
+
+
 
 CpvDeclare(mempool_type*, mempool);
-
-#if USE_MEMPOOL_RECV
-CpvDeclare(mempool_type*, mempool_recv);
-#endif
 
 #endif /* USE_MEMPOOL */
 
@@ -160,7 +199,7 @@ CpvDeclare(mempool_type*, mempool_recv);
 
 #define CACHELINE_LEN 64
 
-#define OFI_NUM_RECV_REQS_DEFAULT    128
+#define OFI_NUM_RECV_REQS_DEFAULT    8
 #define OFI_NUM_RECV_REQS_MAX        4096
 
 #define OFI_EAGER_MAXSIZE_DEFAULT    65536
@@ -234,10 +273,11 @@ static inline int process_completion_queue();
  * OFI RMA Header
  * Message sent by sender to receiver during RMA Read of long messages.
  *  - nodeNo: Target node number
- *  - src_msg: Address of source msg; Sent back as part of OFIRmaAck
+ *  - src_msg: Address or offset from registered source address
  *  - len: Length of message
  *  - key: Remote key
  *  - mr: Address of memory region; Sent back as part of OFIRmaAck
+ *  - orig_msg: actual address of source message; Sent back as part of OFIRmaAck
  */
 typedef struct OFIRmaHeader {
     uint64_t src_msg;
@@ -245,6 +285,7 @@ typedef struct OFIRmaHeader {
     uint64_t key;
     uint64_t mr;
     int      nodeNo;
+    uint64_t orig_msg;  
 } OFIRmaHeader;
 
 /**
@@ -346,13 +387,13 @@ typedef struct OFIContext {
      *  - FI_MR_BASIC requires us to register the RMA buffers and to exchange the keys.
      *  - FI_MR_ENDPOINT requires us to register and bind and enable our MRs, but we can use our own 32 bit keys locally.
      */
-#ifdef CMK_OFI_CXI
+#if CMK_OFI_CXI
     uint32_t mr_mode;
 #else
     enum fi_mr_mode mr_mode;
 #endif
 
-#ifdef CMK_OFI_CXI
+#if CMK_OFI_CXI
   /** Used as unique key value in FI_MR_ENDPOINT mode */
   // only 32 bits available to us
   uint32_t mr_counter;
@@ -379,8 +420,57 @@ static int fill_av(int myid, int nnodes, struct fid_ep *ep,
                    struct fid_av *av, struct fid_cq *cq);
 static int fill_av_ofi(int myid, int nnodes, struct fid_ep *ep,
                        struct fid_av *av, struct fid_cq *cq);
+#if CMK_OFI_CXI
+static int ofi_reg_bind_enable(const void *buf,
+			       size_t len, struct fid_mr **mr, OFIContext *context);
+#endif
 
 static OFIContext context;
+#if LARGEPAGE
+
+/* directly mmap memory from hugetlbfs for large pages */
+
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include <hugetlbfs.h>
+#ifdef __cplusplus
+}
+#endif
+/** copied from the GNI layer */
+// size must be _tlbpagesize aligned
+void *my_get_huge_pages(size_t size)
+{
+    char filename[512];
+    int fd;
+    mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
+    void *ptr = NULL;
+
+    snprintf(filename, sizeof(filename), "%s/charm_mempool.%d.%d", hugetlbfs_find_path_for_size(_tlbpagesize), getpid(), rand());
+    fd = open(filename, O_RDWR | O_CREAT, mode);
+    if (fd == -1) {
+        CmiAbort("my_get_huge_pages: open filed");
+    }
+    ptr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    if (ptr == MAP_FAILED) ptr = NULL;
+//printf("[%d] my_get_huge_pages: %s %d %p\n", myrank, filename, size, ptr);
+    close(fd);
+    unlink(filename);
+    return ptr;
+}
+
+void my_free_huge_pages(void *ptr, int size)
+{
+//printf("[%d] my_free_huge_pages: %p %d\n", myrank, ptr, size);
+    int ret = munmap(ptr, size);
+    if (ret == -1) CmiAbort("munmap failed in my_free_huge_pages");
+}
+
+#endif
 
 #include "machine-rdma.h"
 #if CMK_ONESIDED_IMPL
@@ -424,13 +514,13 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
     CmiAssert(NULL != hints);
      hints->mode = ~0;
      hints->domain_attr->mode = ~0;
-#ifdef CMK_OFI_CXI
-     hints->domain_attr->mr_mode = (FI_MR_ENDPOINT|FI_MR_ALLOCATED);
+#if CMK_OFI_CXI
+     hints->domain_attr->mr_mode          = FI_MR_ENDPOINT;
 #endif
      hints->mode                          = FI_CONTEXT;
      hints->ep_attr->type                 = FI_EP_RDM;
-#ifdef CMK_OFI_CXI
-     hints->ep_attr->protocol                 = FI_PROTO_CXI;
+#if CMK_OFI_CXI
+     hints->ep_attr->protocol             = FI_PROTO_CXI;
 #endif
      hints->domain_attr->resource_mgmt    = FI_RM_ENABLED;
      hints->caps                          = FI_TAGGED;
@@ -445,8 +535,14 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
     //    fi_version = FI_VERSION(1, 15);
     // CXI versions itself differently from OFI
 
-    ret= fi_getinfo(FI_VERSION(FI_MAJOR_VERSION, FI_MINOR_VERSION),
-	       NULL, NULL, 0ULL, hints, &providers);
+#if CMK_OFI_CXI
+    /* CXI has its own versioning, so just use whatever the build env
+       is until we come up with some CXI version specific changes */
+    fi_version = FI_VERSION(FI_MAJOR_VERSION, FI_MINOR_VERSION);
+#else
+    fi_version = FI_VERSION(1, 0);
+#endif
+    ret = fi_getinfo(fi_version, NULL, NULL, 0ULL, hints, &providers);
 
     if (ret < 0) {
         CmiAbort("OFI::LrtsInit::fi_getinfo error");
@@ -502,31 +598,32 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
     OFI_INFO("use inject: %d\n", context.use_inject);
 
     context.rma_maxsize = prov->ep_attr->max_msg_size;
-#ifdef CMK_OFI_CXI
+#if CMK_OFI_CXI
     context.mr_mode = prov->domain_attr->mr_mode;
-    OFI_INFO("requested mr mode: 0x%x\n", FI_MR_ENDPOINT|FI_MR_ALLOCATED);
-OFI_INFO("requested mr mode & mr_mode: 0x%x\n", (FI_MR_ENDPOINT| FI_MR_ALLOCATED) & context.mr_mode);
+    OFI_INFO("requested mr mode: 0x%x\n", FI_MR_ENDPOINT);
+OFI_INFO("requested mr mode & mr_mode: 0x%x\n", (FI_MR_ENDPOINT) & context.mr_mode);
 #else
     // the old code path uses the defunct enum
     context.mr_mode = static_cast<fi_mr_mode>(prov->domain_attr->mr_mode);
 #endif
-    // start at 50 for the normal stuff, like pool messages
-    context.mr_counter = 50;
+    // start at 51 for the normal stuff, like pool messages
+    context.mr_counter = 51;
     OFI_INFO("maximum rma size: %ld\n", context.rma_maxsize);
     OFI_INFO("mr mode: 0x%x\n", context.mr_mode);
 
     OFI_INFO("mr virtual address support : 0x%x\n", context.mr_mode & FI_MR_VIRT_ADDR);
 
 
-#ifdef CMK_OFI_CXI
+#if CMK_OFI_CXI
 if ((context.mr_mode & FI_MR_ENDPOINT)==0)
       CmiAbort("OFI::LrtsInit::Unsupported MR mode FI_MR_ENDPOINT");
 #else
     /* keeping this for now, should debug this on a non-cray and make
        sure we get a basic OFI working there without these defunct MR
-       modes.  Currently, we don't actually care about non CRAYXE OFI,
-       but it could be good on AWS EFA and potentially good wherever
-       there is an optimal provider for the underlying hardware. */
+       modes.  Currently, we don't actually care about non CXI OFI,
+       but it could be good on AWS EFA and potentially good on future
+       platforms where there is an optimal provider for the underlying
+       hardware. */
     if ((context.mr_mode != FI_MR_BASIC) &&
         (context.mr_mode != FI_MR_SCALABLE)) {
         CmiAbort("OFI::LrtsInit::Unsupported MR mode");
@@ -711,70 +808,25 @@ static inline
 void prepost_buffers()
 {
     OFIRequest **reqs;
-    ALIGNED_ALLOC(reqs, sizeof(void*) * context.num_recv_reqs);
-#ifdef CMK_OFI_CXI
-    // bind and enable the MR
-    /* Register new MR to recv into */
-    struct fid_mr *mr;
-    int ret = fi_mr_reg(context.domain,        /* In:  domain object */
-		    reqs,                   /* In:  lower memory address */
-		    sizeof(void*) * context.num_recv_reqs,                  /* In:  length */
-		    MR_ACCESS_PERMISSIONS, /* In:  access permissions */
-		    0ULL,                  /* In:  offset (not used) */
-		    OFI_POSTED_RECV_MR_KEY,         /* In:  requested key */
-		    0ULL,                  /* In:  flags */
-		    &mr,                   /* Out: memregion object */
-		    NULL);                 /* In:  context (not used) */
-
-    ret = fi_mr_bind( mr, (fid_t) context.ep, 0);
-    if (ret) {
-      MACHSTATE1(3, "fi_mr_bind error in reqs prepost: %d\n", ret);
-      CmiAbort("fi_mr_bind error");
-    }
-    ret = fi_mr_enable(mr);
-    if (ret) {
-      MACHSTATE1(3, "fi_mr_enable error in reqs prepost : %d\n", ret);
-      CmiAbort("fi_mr_enable error");
-    }
+#if CMK_OFI_CXI
+    // CmiAlloc will go through LrtsAlloc, which will use a memory
+    // pool, which should do all the right things wrt register, bind,
+    // enable behind the scenes
+    reqs = (OFIRequest **) CmiAlloc(sizeof(void*) * context.num_recv_reqs);
+#else
+    ALIGNED_ALLOC(reqs,(sizeof(void*) * context.num_recv_reqs));
 #endif
+
     int i;
     for (i = 0; i < context.num_recv_reqs; i++) {
 #if USE_OFIREQUEST_CACHE
         reqs[i] = alloc_request(context.request_cache);
 #else
         reqs[i] = (OFIRequest *) CmiAlloc(sizeof(OFIRequest));
-#ifdef CMK_OFI_CXI
-    // bind and enable the MR
-    /* Register new MR to recv into */
-    struct fid_mr *mr;
-    uint32_t requested_key = __sync_fetch_and_add(&(context.mr_counter), 1);
-    int ret = fi_mr_reg(context.domain,        /* In:  domain object */
-		    reqs[i],                   /* In:  lower memory address */
-		    sizeof(OFIRequest),                  /* In:  length */
-		    MR_ACCESS_PERMISSIONS, /* In:  access permissions */
-		    0ULL,                  /* In:  offset (not used) */
-		    requested_key,         /* In:  requested key */
-		    0ULL,                  /* In:  flags */
-		    &mr,                   /* Out: memregion object */
-		    NULL);                 /* In:  context (not used) */
-    ret = fi_mr_bind( mr, (fid_t) context.ep, 0);
-    if (ret) {
-      MACHSTATE1(3, "fi_mr_bind error: %d\n", ret);
-      CmiAbort("fi_mr_bind error");
-    }
-    ret = fi_mr_enable(mr);
-    if (ret) {
-      MACHSTATE1(3, "fi_mr_enable error: %d\n", ret);
-      CmiAbort("fi_mr_enable error");
-    }
-#endif
 #endif
         reqs[i]->callback = recv_callback;
-#ifdef CMK_OFI_CXI
-	reqs[i]->data.recv_buffer = LrtsPoolAlloc(context.eager_maxsize);
-#else
-        reqs[i]->data.recv_buffer = CmiAlloc(context.eager_maxsize);
-#endif
+
+	reqs[i]->data.recv_buffer = CmiAlloc(context.eager_maxsize);
         CmiAssert(reqs[i]->data.recv_buffer);
 
         MACHSTATE2(3, "---> posting recv req %p buf=%p",
@@ -862,13 +914,13 @@ void ofi_send(void *buf, size_t buf_size, int addr, uint64_t tag, OFIRequest *re
         req->callback(NULL, req);
     }
     else
-    {
+      {
 #if CMK_OFI_CXI
-    block_header *current = &(CpvAccess(mempool)->block_head);
-    struct fid_mr *mr               = (struct fid_mr *) MEMPOOL_GetBlockMemHndl(current);
-#endif
-    MACHSTATE3(3, "msg send mr %p: mr key %lld buf %p\n", mr, fi_mr_key(mr), buf) 
 
+	struct fid_mr* mr = (struct fid_mr *) GetMemHndl(buf);
+#endif
+
+	MACHSTATE3(3, "msg send mr %p: mr key %lu buf %p\n", mr, fi_mr_key(mr), buf);
         /* Else, use regular send. */
         OFI_RETRY(fi_tsend(context.ep,
                            buf,
@@ -969,8 +1021,9 @@ CmiCommHandle LrtsSendFunc(int destNode, int destPE, int size, char *msg, int mo
        */
       OFIRmaHeader  *rma_header;
       struct fid_mr *mr;
-#ifdef CMK_OFI_CXI
+#if CMK_OFI_CXI
       uint32_t      requested_key = 0;
+      block_header *base_addr;
 #else
       uint64_t      requested_key = 0;
 #endif
@@ -992,11 +1045,11 @@ CmiCommHandle LrtsSendFunc(int destNode, int destPE, int size, char *msg, int mo
 	}
       else if (FI_MR_ENDPOINT & context.mr_mode)
 	{
-	  //get the MR from the pool
+
 #if CMK_OFI_CXI
-	  block_header *current = &(CpvAccess(mempool)->block_head);
-	  mr               = (struct fid_mr *) MEMPOOL_GetBlockMemHndl(current);
-	  MACHSTATE3(3, "msg send mr %p: mr key %lld buf %p\n", mr, fi_mr_key(mr), msg) 
+	  mr               = (struct fid_mr *) GetMemHndl(msg);
+	  size_t offset = GetMemOffsetFromBase(msg);
+	  MACHSTATE4(3, "msg send mr %p: mr key %lu buf %p offset %lu\n", mr, fi_mr_key(mr), msg, offset); 
 #else
 	  CmiAbort("not implemented");
 #endif
@@ -1004,30 +1057,18 @@ CmiCommHandle LrtsSendFunc(int destNode, int destPE, int size, char *msg, int mo
       MACHSTATE(3, "--> long");
       ALIGNED_ALLOC(rma_header,sizeof(OFIRmaHeader));
       rma_header->nodeNo  = CmiMyNodeGlobal();
-      rma_header->src_msg = (uint64_t)msg - (uint64_t)CpvAccess(mempool);
+#if CMK_OFI_CXI
+      rma_header->src_msg = GetMemOffsetFromBase(msg);
+      rma_header->orig_msg = (uint64_t) msg;
+#else
+      rma_header->src_msg = (uint64_t)msg;
+#endif
       rma_header->len     = size;
       rma_header->key     = fi_mr_key(mr);
       rma_header->mr      = (uint64_t) mr;
       req->callback        = send_rma_callback;
       req->data.rma_header = rma_header;
       MACHSTATE3(3, "sending msg size=%d, hdl=%d, xhdl=%d",CmiGetMsgSize(msg),CmiGetHandler(msg), CmiGetXHandler(msg));
-      /*      int zerocount=0;
-            for(int ith=0; ith < size; ith++)
-	{
-	  if(msg[ith]!=0)
-	    zerocount++;
-	}
-      if(zerocount>0)
-	{
-	  int nonzeroprint=0;
-	  for(int ith=0; ith < size && nonzeroprint <zerocount; ith++)
-	    {
-	      if(msg[ith]!=0)
-		{nonzeroprint++;}
-	      MACHSTATE2(3, "sent msg %i %x",ith, msg[ith]);
-	    }
-	}
-      */
     }
 
 #if CMK_SMP
@@ -1059,11 +1100,6 @@ void send_ack_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
     long_msg = req->data.long_msg;
     CmiAssert(long_msg);
 
-#ifndef CMK_OFI_CXI
-    ///EJB TODO need something here to handle out of pool case
-    if (long_msg->mr)
-      fi_close((struct fid*)long_msg->mr);
-#endif
     free(long_msg);
 
 #if USE_OFIREQUEST_CACHE
@@ -1157,14 +1193,14 @@ void process_short_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
 
     char    *data;
     size_t  msg_size;
-
+    MACHSTATE(3, "OFI::process_short_recv");
     data = (char *)req->data.recv_buffer;
     CmiAssert(data);
 
     msg_size = CMI_MSG_SIZE(data);
     MACHSTATE2(3, "--> eager msg (e->len=%ld msg_size=%ld)", e->len, msg_size);
 
-    req->data.recv_buffer = LrtsPoolAlloc(context.eager_maxsize);
+    req->data.recv_buffer = CmiAlloc(context.eager_maxsize);
     CmiAssert(req->data.recv_buffer);
     MACHSTATE3(3, "received msg size=%d, hdl=%d, xhdl=%d",CmiGetMsgSize(data),CmiGetHandler(data), CmiGetXHandler(data));
     handleOneRecvedMsg(e->len, data);
@@ -1195,7 +1231,7 @@ void process_long_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
     char *lbuf;
     size_t remaining;
     size_t chunk_size;
-
+    MACHSTATE(3, "OFI::process_long_recv");
     CmiAssert(e->len == sizeof(OFIRmaHeader));
 
     /**
@@ -1209,7 +1245,8 @@ void process_long_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
     rkey   = rma_header->key;
     rmr    = rma_header->mr;
 
-    MACHSTATE5(3, "--> Receiving long msg src node %d len=%ld rkey=0x%lx rmsg=%lld rmr=%lld", nodeNo, len, rkey, rmsg, rmr);
+    MACHSTATE5(3, "--> Receiving long msg src node %d len=%ld rptr=0x%lx rmsg=0x%lu rmr=0x%lx", nodeNo, len, rma_header->orig_msg, rmsg, rmr);
+    MACHSTATE3(3, "--> Receiving long msg rptr=0x%lx rkey=0x%lu rmr=0x%lx", rma_header->orig_msg, rkey, rmr);
 
     /**
      * Prepare buffer
@@ -1218,6 +1255,7 @@ void process_long_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
 
     if (FI_MR_BASIC & context.mr_mode)
       {
+	MACHSTATE1(3, "FI_MR_BASIC %d", context.mr_mode);
 	asm_buf = (char *)CmiAlloc(len);
 	/* Register local MR to read into */
         ret = fi_mr_reg(context.domain,        /* In:  domain object */
@@ -1235,26 +1273,26 @@ void process_long_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
         }
       }
       else if (FI_MR_ENDPOINT & context.mr_mode) {
-	asm_buf = (char *)LrtsPoolAlloc(len);
+	asm_buf = (char *)CmiAlloc(len);
 	//	memset(asm_buf,0,len);
       }
     CmiAssert(asm_buf);
     /**
      * Save some information about the RMA Read operation(s)
      */
-    ALIGNED_ALLOC(long_msg, sizeof(*long_msg));
-    //long_msg= (OFILongMsg *) ALIGNED_ALLOC(sizeof(OFILongMsg));
+    ALIGNED_ALLOC(long_msg, sizeof(OFILongMsg));
+
     long_msg->asm_msg          = asm_buf;
     long_msg->nodeNo           = nodeNo;
-    long_msg->rma_ack.src_msg  = rmsg;
     long_msg->rma_ack.mr       = rmr;
     long_msg->completion_count = 0;
-#ifdef CMK_OFI_CXI
-    // extract the MR key based on the allocation
-    block_header *current = &(CpvAccess(mempool)->block_head);
-    long_msg->mr               = (struct fid_mr *) MEMPOOL_GetBlockMemHndl(current);
-    MACHSTATE2(3, "long msg mempool mr %p: mr key %lld\n", long_msg->mr, fi_mr_key(long_msg->mr));
+#if CMK_OFI_CXI
+    // so the other side can free the right buffer in the offset case
+    long_msg->rma_ack.src_msg  = rma_header->orig_msg;
+    long_msg->mr = (struct fid_mr *) GetMemHndl(asm_buf);
+    MACHSTATE2(3, "long msg mempool mr %p: mr key %lu\n", long_msg->mr, fi_mr_key(long_msg->mr));
 #else
+    long_msg->rma_ack.src_msg  = rmsg;
     long_msg->mr               =mr;
 #endif
     /**
@@ -1280,11 +1318,10 @@ void process_long_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
         /* Increment number of expected completions */
         long_msg->completion_count++;
 
-        MACHSTATE5(3, "---> RMA Read lbuf %p rbuf %p rmsg %p len %ld chunk #%d",
+        MACHSTATE5(3, "---> RMA Read lbuf %p rbuf %lu rmsg %lu len %ld chunk #%lu",
                    lbuf, rbuf, rmsg, chunk_size, long_msg->completion_count);
 
 
-	//	  will need to restore something like this logic later
 	OFI_RETRY(fi_read(context.ep,
                           lbuf,
                           chunk_size,
@@ -1297,7 +1334,7 @@ void process_long_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
 	lbuf       += chunk_size;
 	rbuf       += chunk_size;
     }
-    MACHSTATE4(3, "---> RMA completed lbuf %p rbuf %p len %ld comp %d",
+    MACHSTATE4(3, "---> RMA completed lbuf %p rbuf %lu len %lu comp %lu",
 	       lbuf, rbuf, len, long_msg->completion_count);
 }
 
@@ -1307,7 +1344,7 @@ void process_long_send_ack(struct fi_cq_tagged_entry *e, OFIRequest *req)
     /**
      * An OFIRmaAck was received; Close memory region and free original msg.
      */
-
+    MACHSTATE(3, "OFI::process_long_send_ack");
     struct fid *mr;
     char *msg;
 
@@ -1318,9 +1355,9 @@ void process_long_send_ack(struct fi_cq_tagged_entry *e, OFIRequest *req)
     msg = (char *)req->data.rma_ack->src_msg;
     CmiAssert(msg);
 
-    MACHSTATE1(3, "--> Finished sending msg size=%i", CMI_MSG_SIZE(msg));
+    MACHSTATE2(3, "--> Finished sending msg size=%i msg ptr %p", CMI_MSG_SIZE(msg), msg);
 
-    //    CmiFree(msg);
+    CmiFree(msg);
 }
 
 static inline
@@ -1355,7 +1392,7 @@ void recv_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
         break;
 #endif
     default:
-        MACHSTATE2(3, "--> unknown operation %x len=%ld", e->tag, e->len);
+        MACHSTATE2(3, "--> unknown operation %lu len=%lu", e->tag, e->len);
         CmiAbort("!! Wrong operation !!");
     }
 
@@ -1379,7 +1416,7 @@ int process_completion_queue()
     struct fi_cq_tagged_entry entries[context.cq_entries_count];
     struct fi_cq_err_entry error;
     OFIRequest *req;
-
+    MACHSTATE(3, "OFI::process_completion_queue");
     ret = fi_cq_read(context.cq, entries, context.cq_entries_count);
     if (ret > 0)
     {
@@ -1402,7 +1439,7 @@ int process_completion_queue()
             }
             else
             {
-                MACHSTATE1(3, "Missed event with flags=%x", e->flags);
+                MACHSTATE1(3, "Missed event with flags=%lu", e->flags);
                 CmiAbort("!! Missed an event !!");
             }
         }
@@ -1425,8 +1462,8 @@ int process_completion_queue()
             {
                 CmiAbort("can't retrieve error");
             }
-            MACHSTATE4(3, "POLL: error is %d (ret=%d) len %d tag %d\n", error.err, ret, error.len, error.tag);
-            CmiPrintf("POLL: error is %d (ret=%d) len %d tag %d\n", error.err, ret, error.len, error.tag);
+            MACHSTATE4(3, "POLL: error is %d (ret=%d) len %lu tag %lu\n", error.err, ret, error.len, error.tag);
+            CmiPrintf("POLL: error is %d (ret=%d) len %lu tag %lu\n", error.err, ret, error.len, error.tag);
             const char* strerror = fi_cq_strerror(context.cq, error.prov_errno, error.err_data, nullptr, 0);
             if (strerror == nullptr)
             {
@@ -1479,38 +1516,9 @@ void *alloc_mempool_block(size_t *size, mem_handle_t *mem_hndl, int expand_flag)
     }
 
     void *pool;
-    ALIGNED_ALLOC(pool, *size);
-#ifdef CMK_OFI_CXI
-    // bind and enable the MR
-
-    uint32_t      requested_key =  __sync_fetch_and_add(&(context.mr_counter), 1);
-    struct fid_mr *mr;
-    int ret = fi_mr_reg(context.domain,        /* In:  domain object */
-		    pool,                   /* In:  lower memory address */
-		    *size,                  /* In:  length */
-		    MR_ACCESS_PERMISSIONS, /* In:  access permissions */
-		    0ULL,                  /* In:  offset (not used) */
-		    requested_key,         /* In:  requested key */
-		    0ULL,                  /* In:  flags */
-		    &mr,                   /* Out: memregion object */
-		    NULL);                 /* In:  context (not used) */
-
-
-
-    ret = fi_mr_bind( mr, (fid_t) context.ep, 0);
-    if (ret) {
-      MACHSTATE1(3, "fi_mr_bind error: %d\n", ret);
-	      CmiAbort("fi_mr_bind error");
-    }
-    ret = fi_mr_enable(mr);
-    if (ret) {
-      MACHSTATE1(3, "fi_mr_enable error: %d\n", ret);
-      CmiAbort("fi_mr_enable error");
-    }
-
-    /* we put the mr into the memhndl to track with pool blocks */
-    *mem_hndl=mr;
-    MACHSTATE3(3, "alloc_mempool_block mr %p key %lld inkey %d\n", mr, fi_mr_key(mr) , requested_key);
+    posix_memalign(&pool,ALIGNBUF,*size);
+    ofi_reg_bind_enable(pool, *size, mem_hndl,&context);
+    MACHSTATE4(3, "alloc_mempool_block ptr %p mr %p key %lu inkey %d\n", pool, *mem_hndl, fi_mr_key(*mem_hndl) , context.mr_counter-1);
 #endif
     return pool;
 }
@@ -1539,15 +1547,6 @@ void LrtsPreCommonInit(int everReturn)
     block_header* current = &(CpvAccess(mempool)->block_head);
     struct fid_mr* extractedmr  = (struct fid_mr *) MEMPOOL_GetBlockMemHndl(current);
     MACHSTATE2(3, "LrtsPreCommonInit mempool->block_head.mem_hndl %p extracted %p\n", CpvAccess(mempool)->block_head.mem_hndl, extractedmr );
-
-#if USE_MEMPOOL_RECV
-    CpvInitialize(mempool_type*, mempool_recv);
-    CpvAccess(mempool_recv) = mempool_init(context.mempool_init_size,
-                                      alloc_mempool_block,
-                                      free_mempool_block,
-                                      context.mempool_max_size);
-
-#endif
 #endif
 
     if (!CmiMyRank()) prepost_buffers();
@@ -1594,43 +1593,25 @@ void LrtsDrainResources() /* used when exiting */
 #if USE_MEMPOOL
 void* LrtsPoolAlloc(int n_bytes)
 {
-  void *ptr = NULL;
+  char *ptr = NULL;
   size_t size = n_bytes;
 
-
+  CmiAbort("LrtsPoolAlloc not supported, why are you calling this?");
     if (size <= context.mempool_lb_size || size >= context.mempool_rb_size)
       {
-        ALIGNED_ALLOC(ptr, size);
-#ifdef CMK_OFI_CXI
-	uint32_t      requested_key = 0;
-	requested_key = __sync_fetch_and_add(&(context.mr_counter), 1);
+	posix_memalign((void **)&ptr,ALIGNBUF, size);
+#if CMK_OFI_CXI
 
 	// bind and enable the MR
 	struct fid_mr *mr;
-	int ret = fi_mr_reg(context.domain,        /* In:  domain object */
-		    ptr,                   /* In:  lower memory address */
-		    size,                  /* In:  length */
-		    MR_ACCESS_PERMISSIONS, /* In:  access permissions */
-		    0ULL,                  /* In:  offset (not used) */
-		    requested_key,         /* In:  requested key */
-		    0ULL,                  /* In:  flags */
-		    &mr,                   /* Out: memregion object */
-		    NULL);                 /* In:  context (not used) */
-	ret = fi_mr_bind( mr, (fid_t) context.ep, 0);
-	if (ret) {
-	  MACHSTATE1(3, "fi_mr_bind error: %d\n", ret);
-	  CmiAbort("fi_mr_bind error");
-	}
-	ret = fi_mr_enable(mr);
-	if (ret) {
-	  MACHSTATE1(3, "fi_mr_enable error: %d\n", ret);
-	  CmiAbort("fi_mr_enable error");
-	}
+	ofi_reg_bind_enable(ptr, size, &mr,&context);
+	((block_header *)ptr)->mem_hndl = mr;
+	//	 ptr+=sizeof(used_header);
 #endif
       }
     else
-        ptr = mempool_malloc(CpvAccess(mempool), size, 1);
-    MACHSTATE1(3, "LrtsPoolAlloc len %d\n", size);
+      ptr = (char *) mempool_malloc(CpvAccess(mempool), size, 1);
+    MACHSTATE2(3, "LrtsPoolAlloc ptr=%p len=%lu\n", ptr, size);
     if (!ptr) CmiAbort("LrtsPoolAlloc");
     return ptr;
 }
@@ -1638,47 +1619,75 @@ void* LrtsPoolAlloc(int n_bytes)
 
 void* LrtsAlloc(int n_bytes, int header)
 {
-    void *ptr = NULL;
+    char *ptr = NULL;
     size_t size = n_bytes + header;
-    MACHSTATE1(3, "LrtsAlloc size %d\n", size);
+    MACHSTATE(3, "OFI::LrtsAlloc");
 #if USE_MEMPOOL
-    if (size <= context.mempool_lb_size || size >= context.mempool_rb_size)
+    if (size <= context.mempool_lb_size)
       {
-        ALIGNED_ALLOC(ptr, size);
-#ifdef CMK_OFI_CXI
-	uint32_t      requested_key = __sync_fetch_and_add(&(context.mr_counter), 1);
-
-	// bind and enable the MR
-	struct fid_mr *mr;
-	int ret = fi_mr_reg(context.domain,        /* In:  domain object */
-		    ptr,                   /* In:  lower memory address */
-		    size,                  /* In:  length */
-		    MR_ACCESS_PERMISSIONS, /* In:  access permissions */
-		    0ULL,                  /* In:  offset (not used) */
-		    requested_key,         /* In:  requested key */
-		    0ULL,                  /* In:  flags */
-		    &mr,                   /* Out: memregion object */
-		    NULL);                 /* In:  context (not used) */
-	ret = fi_mr_bind( mr, (fid_t) context.ep, 0);
-	if (ret) {
-	  MACHSTATE1(3, "fi_mr_bind error: %d\n", ret);
-	  CmiAbort("fi_mr_bind error");
-	}
-	ret = fi_mr_enable(mr);
-	if (ret) {
-	  MACHSTATE1(3, "fi_mr_enable error: %d\n", ret);
-	  CmiAbort("fi_mr_enable error");
-	}
-	MACHSTATE1(3, "LrtsAlloc outside pool size %d\n", size);
-#endif
+	CmiAbort("OFI pool lower boundary violation");
       }
-    else{
-      ptr = mempool_malloc(CpvAccess(mempool), size, 1);
-      MACHSTATE1(3, "LrtsAlloc from pool size %d\n", size);
-    }
+    else
+      {
+	CmiAssert(header+sizeof(mempool_header) <= ALIGNBUF);
+	n_bytes=ALIGN64(n_bytes);
+	if( n_bytes < BIG_MSG)
+	  {
+            char *res = (char *)mempool_malloc(CpvAccess(mempool), ALIGNBUF+n_bytes, 1);
+
+	    // note CmiAlloc wrapper will move the pointer past the header
+	    if (res) ptr = res;
+
+	    MACHSTATE3(3, "OFI::LrtsAlloc ptr %p - header %d = %p", res, header, ptr);
+	    size_t offset1=GetMemOffsetFromBase(ptr+header);
+	    struct fid_mr* extractedmr  = (struct fid_mr *) GetMemHndl(ptr+header);
+	    MACHSTATE5(3, "OFI::LrtsAlloc not big from pool ret %p ptr %p memhndl %p mempoolptrfromret %p offset %lu", res, ptr, extractedmr, MEMPOOL_GetMempoolPtr(MEMPOOL_GetMempoolHeader(ptr+header,sizeof(mempool_header)+header)), offset1);
+	  }
+	else
+	  {
+#if LARGEPAGE
+	    n_bytes = ALIGNHUGEPAGE(n_bytes+ALIGNBUF);
+	    char *res = (char *)my_get_huge_pages(n_bytes);
 #else
-    ALIGNED_ALLOC(ptr, size);
+	    n_bytes = size+ sizeof(out_of_pool_header);
+	    n_bytes = ALIGN64(n_bytes);
+	    char *res;
+
+	    MACHSTATE1(3, "OFI::LrtsAlloc unpooled RB big %lu", n_bytes);
+	    posix_memalign((void **)&res,ALIGNBUF, n_bytes);
+	    out_of_pool_header *mptr= (out_of_pool_header*) res;
+	    // construct the minimal version of the
+	    // mempool_header+block_header like a memory pool message
+	    // so that all messages can be handled the same way with
+	    // the same macros and functions.  We need the mptr,
+	    // block_ptr, and mem_hndl fields and can test the size to
+	    // know to not put it back in the normal pool on free
+#if CMK_OFI_CXI
+	    struct fid_mr *mr;
+	    ofi_reg_bind_enable(res, n_bytes, &mr,&context);
+	    mptr->block_head.mem_hndl=mr;
 #endif
+	    mptr->block_head.mptr=(struct mempool_type*) res;
+	    mptr->block.block_ptr=(struct block_header *)res;
+	    ptr=(char *) res + (sizeof(out_of_pool_header));
+	    //	    char *testptr = ptr+sizeof(CmiChunkHeader);
+	    //	    CmiAssert(GetBaseAllocPtr(testptr)==mptr->block.block_ptr);
+	    // MACHSTATE5(3, "OFI::LrtsAlloc unpooled base %p, msg %p, size %lu, mr %p macrooffset %lu", res, testptr, n_bytes, mr, GetMemOffsetFromBase(testptr));
+#endif //LARGEPAGE
+
+	  }
+#else //not MEMPOOL
+	n_bytes = ALIGN64(n_bytes);           /* make sure size if 4 aligned */
+	char *res;
+	posix_memalign((void **)&res, ALIGNBUF, n_bytes+ALIGNBUF);
+#if CMK_OFI_CXI
+	struct fid_mr *mr;
+	ofi_reg_bind_enable(res, n_bytes+ALIGNBUF, &mr,&context);
+	((block_header *)res)->mem_hndl = mr;
+#endif
+	ptr = res;
+#endif //MEMPOOL
+      }
 
     if (!ptr) CmiAbort("LrtsAlloc");
     return ptr;
@@ -1686,25 +1695,46 @@ void* LrtsAlloc(int n_bytes, int header)
 
 void LrtsFree(void *msg)
 {
-#if USE_MEMPOOL
-    CmiUInt4 size = SIZEFIELD((char*)msg + sizeof(CmiChunkHeader)) + sizeof(CmiChunkHeader);
-    if (size <= context.mempool_lb_size || size >= context.mempool_rb_size)
-      {
-	//	fi_close(); the MR that we're tracking somehow
-        free(msg);
-      }
-    else
-#if CMK_SMP
-      mempool_free_thread(msg);
-    //mempool_free(msg);
-    //	fi_close(); the MR that we're tracking somehow
+
+  int headersize = sizeof(CmiChunkHeader);
+  //  char *aligned_addr = (char *)msg + headersize - ALIGNBUF;
+  CmiUInt4 size = SIZEFIELD((char*)msg+headersize);
+  MACHSTATE(3, "OFI::LrtsFree");
+  if (size <= context.mempool_lb_size)
+    CmiAbort("OFI: mempool lower boundary violation");
+  else
+    size = ALIGN64(size);
+  if(size>=BIG_MSG)
+    {
+#if LARGEPAGE
+      int s = ALIGNHUGEPAGE(size+ALIGNBUF);
+      my_free_huge_pages(msg, s);
 #else
-        mempool_free(CpvAccess(mempool), msg);
-	//	fi_close(); the MR that we're tracking somehow
+#if CMK_OFI_CXI
+      MACHSTATE(3, "OFI::LrtsFree fi_close is weirdly unsafe ");
+      //      fi_close( (struct fid *)GetMemHndl( (char* )msg  -sizeof(mempool_header)));
+      MACHSTATE(3, "OFI::LrtsFree free msg next ");
+      free((char*)msg-sizeof(out_of_pool_header));
+#else
+      free((char*)msg);
+#endif
+#endif
+    }
+  else
+    {
+#if USE_MEMPOOL
+      // all this alignedbuf stuff is nuts, CmiFree gave us the right pointer
+#if CMK_SMP
+      //      mempool_free_thread(aligned_addr + sizeof(mempool_header));
+      mempool_free_thread(msg);
+#else
+      //      mempool_free(CpvAccess(mempool), aligned_addr + sizeof(mempool_header));
+      mempool_free(CpvAccess(mempool), msg);
 #endif /* CMK_SMP */
 #else
-    free(msg);
+      free(aligned_addr);
 #endif /* USE_MEMPOOL */
+    }
 }
 
 void LrtsExit(int exitcode)
@@ -1722,7 +1752,7 @@ void LrtsExit(int exitcode)
         req = context.recv_reqs[i];
         ret = fi_cancel((fid_t)context.ep, (void *)&(req->context));
         if (ret < 0) CmiAbort("fi_cancel error");
-	//        CmiFree(req->data.recv_buffer);
+	//	CmiFree(req->data.recv_buffer);
 #if USE_OFIREQUEST_CACHE
         free_request(req);
 #else
@@ -2108,6 +2138,57 @@ int fill_av(int myid,
 
     return 0;
 }
+
+//! convenience function to do registration, binding and enabling in one go
+// primarily for OFI_CXI to support FI_MR_ENDPOINT, but it has no
+// CXI specific dependencies
+static int ofi_reg_bind_enable(const void *buf,
+			       size_t len, struct fid_mr **mr, OFIContext *context)
+{
+
+        uint32_t  requested_key = __sync_fetch_and_add(&(context->mr_counter), 1);
+
+	/* Register new MR */
+        int ret = fi_mr_reg(context->domain,        /* In:  domain object */
+                        buf,                   /* In:  lower memory address */
+                        len,                  /* In:  length */
+			MR_ACCESS_PERMISSIONS, /* In:  access permissions */
+                        0ULL,                  /* In:  offset (not used) */
+                        requested_key,         /* In:  requested key */
+                        0ULL,                  /* In:  flags */
+                        mr,                   /* Out: memregion object */
+                        NULL);                 /* In:  context (not used) */
+
+	if (ret) {
+            MACHSTATE1(3, "fi_mr_reg error: %d\n", ret);
+            CmiAbort("fi_mr_reg error");
+        }
+	else{
+	  MACHSTATE3(3, "fi_mr_reg success: %d buf %p mr %lu\n", ret, buf, fi_mr_key(*mr));
+	}
+	ret = fi_mr_bind(*mr, (struct fid *)context->ep, 0);
+	if (ret) {
+            MACHSTATE1(3, "fi_mr_bind error: %d\n", ret);
+            CmiAbort("fi_mr_bind error");
+        }
+	else
+	  {
+	    MACHSTATE3(3, "fi_mr_bind success: %d ep %p mr %lu\n", ret, context->ep, fi_mr_key(*mr));
+	  }
+
+	ret = fi_mr_enable(*mr);
+	if (ret) {
+            MACHSTATE1(3, "fi_mr_enable error: %d\n", ret);
+            CmiAbort("fi_mr_enable error");
+        }
+	else
+	  {
+	    MACHSTATE2(3, "fi_mr_enable success: %d mr %lu\n", ret, fi_mr_key(*mr));
+	  }
+
+	return(ret);
+}
+
 
 #if CMK_ONESIDED_IMPL
 #include "machine-onesided.C"

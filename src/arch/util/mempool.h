@@ -93,6 +93,12 @@ typedef struct block_header
 #undef freelists_extra
 } block_header;
 
+typedef struct out_of_pool_header
+{
+  block_header block_head;
+  mempool_header block;
+} out_of_pool_header;
+
 typedef struct large_block_header
 {
   mem_handle_t mem_hndl;
@@ -139,6 +145,7 @@ void mempool_destroy(mempool_type* mptr);
 void* mempool_malloc(mempool_type* mptr, size_t size, int expand);
 void* mempool_large_malloc(mempool_type* mptr, size_t size, int expand);
 void mempool_free(mempool_type* mptr, void* ptr_free);
+
 #if CMK_SMP && (CMK_CONVERSE_UGNI || CMK_OFI_CXI)
 void mempool_free_thread(void* ptr_free);
 #endif
