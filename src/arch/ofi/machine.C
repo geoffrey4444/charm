@@ -137,7 +137,7 @@
 /* Runtime to exchange EP addresses during LrtsInit() */
 #if CMK_USE_CRAYPMI
 #include "runtime-craypmi.C"
-#elif
+#elif CMK_USE_CRAYPMI2
 #include "runtime-craypmi2.C"
 #elif CMK_USE_PMI || CMK_USE_SIMPLEPMI
 #include "runtime-pmi.C"
