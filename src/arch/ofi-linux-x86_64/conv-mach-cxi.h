@@ -1,8 +1,9 @@
 #ifndef _CONV_MACH_H
 #define _CONV_MACH_H
 
-#define CMK_CRAYEX                                         1
 #define CMK_OFI                                            1
+/* for Slingshot-11 the provider is CXI, this is notably different
+ in how memory registration is handled from the old OFI. */
 #define CMK_OFI_CXI                                        1
 
 /* define the default linker, together with its options */
@@ -76,12 +77,7 @@
 
 #define CMK_64BIT                      1
 #define CMK_AMD64                      1
-#ifdef CMK_HAS_GET_MYADDRESS
-#undef CMK_HAS_GET_MYADDRESS
-#define CMK_HAS_GET_MYADDRESS 0
-#else
-#define CMK_HAS_GET_MYADDRESS 0
-#endif
+
 /* Other possible definitions:
 
 In fault tolerant architectures, CK_MEM_CHECKPOINT can be set. In this case the

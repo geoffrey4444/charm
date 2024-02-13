@@ -36,13 +36,13 @@
  *
  *  3) CXI is not optimized for within node communication, so process
  *  to process schemes, i.e., XPMEM or CMA are on by default and we
- *  would not expected disabling them to be functional, let alone
+ *  would not expect disabling them to be functional, let alone
  *  optimal.
  *
  *  4) Memory requirements add tracking for the memory registration
  *  key. This is kept in a prefix header for each allocated buffer.
  *  Most use cases are managed by the memory pool, which is also on by
- *  default.
+ *  default and should not be disabled without good reason.
  *
  *  5) CXI comes with FI_MR_VIRT_ADDR=0, which means RMA transactions
  *  require both the key and the offset from the base address of the
@@ -86,6 +86,8 @@
 #include "cmirdmautils.h"
 #include <algorithm>
 
+//EVIL HACK FIX THIS in the BUILD for CXI
+#define CMK_OFI_CXI 1
 /*Support for ++debug: */
 #include <unistd.h> /*For getpid()*/
 #include <stdlib.h> /*For sleep()*/
@@ -133,7 +135,11 @@
 #include "request.h"
 
 /* Runtime to exchange EP addresses during LrtsInit() */
-#if CMK_USE_PMI || CMK_USE_SIMPLEPMI
+#if CMK_USE_CRAYPMI
+#include "runtime-craypmi.C"
+#elif
+#include "runtime-craypmi2.C"
+#elif CMK_USE_PMI || CMK_USE_SIMPLEPMI
 #include "runtime-pmi.C"
 #elif CMK_USE_PMI2
 #include "runtime-pmi2.C"
@@ -153,6 +159,7 @@
 #else
 #define USE_MEMPOOL 0
 #endif
+
 static int _tlbpagesize = 4096;
 #if USE_MEMPOOL
 #if LARGEPAGE
@@ -497,6 +504,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
      * Initialize our runtime environment -- e.g. PMI.
      */
     ret = runtime_init(myNodeID, numNodes);
+    CmiPrintf("[%d] nodeid %d, numnodes %d\n", *myNodeID, *myNodeID, *numNodes);
     if (ret) {
         CmiAbort("OFI::LrtsInit::runtime_init failed");
     }
@@ -521,6 +529,10 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
      hints->ep_attr->type                 = FI_EP_RDM;
 #if CMK_OFI_CXI
      hints->ep_attr->protocol             = FI_PROTO_CXI;
+     hints->domain_attr->threading = FI_THREAD_SAFE;
+     hints->domain_attr->control_progress = FI_PROGRESS_MANUAL;
+     hints->domain_attr->data_progress = FI_PROGRESS_MANUAL;
+     //     hints->ep_attr->type                 = FI_EP_MSG;
 #endif
      hints->domain_attr->resource_mgmt    = FI_RM_ENABLED;
      hints->caps                          = FI_TAGGED;
@@ -552,21 +564,31 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
         CmiAbort("OFI::LrtsInit::No provider found");
     }
 
-#if 0
+#if 1
     // useful for debugging new OFI
     for(fi_info *aprov = providers; aprov!=NULL; aprov=aprov->next)
       {
-	OFI_INFO("aprovider: %s\n", aprov->fabric_attr->prov_name);
+	OFI_INFO("aprovider: %s domain %s\n", aprov->fabric_attr->prov_name, aprov->domain_attr->name);
+	if(strncmp(aprov->domain_attr->name,"cxi0",4)==0)
+	  {
+	    prov = aprov;
+	    /**
+	     * Here we elect to use the cxi0 provider from the list.
+	     */
+	  }
+	/*	else
+	  {
+	    if(strncmp(aprov->domain_attr->name,"cxi1",4)==0)
+	      {
+		prov = aprov;
+		// cxi1?
+	      }
+	      }
+	*/
       }
 #endif
-    /**
-     * Here we elect to use the first provider from the list.
-     * Further filtering could be done at this point (e.g. name).
-     */
-
-    prov = providers;
-
-    OFI_INFO("provider: %s\n", prov->fabric_attr->prov_name);
+    OFI_INFO("[%d]provider: %s\n", *myNodeID, prov->fabric_attr->prov_name);
+    OFI_INFO("[%d]domain: %s\n", *myNodeID, prov->domain_attr->name);
     OFI_INFO("control progress: %d\n", prov->domain_attr->control_progress);
     OFI_INFO("data progress: %d\n", prov->domain_attr->data_progress);
 
@@ -666,6 +688,7 @@ if ((context.mr_mode & FI_MR_ENDPOINT)==0)
      * instantiate the virtual or physical network. This opens a "fabric
      * provider". See man fi_fabric for details.
      */
+    CmiPrintf("[%d] PMI_initialized %d : %d\n",*myNodeID, PMI2_Initialized(), PMI_SUCCESS);
     ret = fi_fabric(prov->fabric_attr, &context.fabric, NULL);
     if (ret < 0) {
       	MACHSTATE1(3, "fi_fabric error: %d\n", ret);
@@ -678,13 +701,27 @@ if ((context.mr_mode & FI_MR_ENDPOINT)==0)
      * hardware port/collection of ports.  Returns a domain object that can be
      * used to create endpoints.  See man fi_domain for details.
      */
+    //    if(*myNodeID==0)
+    //      {
     ret = fi_domain(context.fabric, prov, &context.domain, NULL);
     if (ret < 0) {
-      	MACHSTATE1(3, "fi_domain error: %d\n", ret);
-        fi_freeinfo(providers);
-        CmiAbort("OFI::LrtsInit::fi_domain error");
+      MACHSTATE2(3, "[%d] fi_domain error: %d\n",*myNodeID, ret);
+      fi_freeinfo(providers);
+      CmiPrintf("[%d] fi_domain error: %d\n", *myNodeID, ret);
+      CmiAbort("OFI::LrtsInit::fi_domain error");
     }
+	//      }
+	//    else{
+	//      sleep(5);
+	//      	ret = fi_domain(context.fabric, prov, &context.domain, NULL);
+	//	if (ret < 0) {
+	//	  MACHSTATE2(3, "[%d] fi_domain error: %d\n", *myNodeID,ret);
+	//	  fi_freeinfo(providers);
+	//	  CmiPrintf("[%d] fi_domain error: %d\n", *myNodeID, ret);
+	//	  CmiAbort("OFI::LrtsInit::fi_domain error");
+	//	}
 
+    //    }
     /**
      * Create a transport level communication endpoint.  To use the endpoint,
      * it must be bound to completion counters or event queues and enabled,
@@ -949,7 +986,7 @@ static inline int sendMsg(OFIRequest *req)
 
     MACHSTATE5(2,
                "OFI::sendMsg destNode=%i destPE=%i size=%i msg=%p mode=%i {",
-               req->destNode, req->destPE, req->size, req->data, req->mode);
+               req->destNode, req->destPE, req->size, req->data.short_msg, req->mode);
 
     if (req->size <= context.eager_maxsize) {
         /**
@@ -1353,6 +1390,7 @@ void process_long_send_ack(struct fi_cq_tagged_entry *e, OFIRequest *req)
     //    fi_close(mr);
 
     msg = (char *)req->data.rma_ack->src_msg;
+    MACHSTATE2(3, "OFI::process_long_send_ack for msg %p mr %p",msg, mr);
     CmiAssert(msg);
 
     MACHSTATE2(3, "--> Finished sending msg size=%i msg ptr %p", CMI_MSG_SIZE(msg), msg);
@@ -1534,7 +1572,7 @@ void LrtsPreCommonInit(int everReturn)
 {
     MACHSTATE(2, "OFI::LrtsPreCommonInit {");
 
-    PRINT_THREAD_INFO();
+    //    PRINT_THREAD_INFO();
 
 #if USE_MEMPOOL
     CpvInitialize(mempool_type*, mempool);
@@ -1648,12 +1686,12 @@ void* LrtsAlloc(int n_bytes, int header)
 #if LARGEPAGE
 	    n_bytes = ALIGNHUGEPAGE(n_bytes+ALIGNBUF);
 	    char *res = (char *)my_get_huge_pages(n_bytes);
-#else
+#else // not largepage
 	    n_bytes = size+ sizeof(out_of_pool_header);
 	    n_bytes = ALIGN64(n_bytes);
 	    char *res;
 
-	    MACHSTATE1(3, "OFI::LrtsAlloc unpooled RB big %lu", n_bytes);
+	    MACHSTATE1(3, "OFI::LrtsAlloc unpooled RB big %d", n_bytes);
 	    posix_memalign((void **)&res,ALIGNBUF, n_bytes);
 	    out_of_pool_header *mptr= (out_of_pool_header*) res;
 	    // construct the minimal version of the
@@ -1684,11 +1722,12 @@ void* LrtsAlloc(int n_bytes, int header)
 	struct fid_mr *mr;
 	ofi_reg_bind_enable(res, n_bytes+ALIGNBUF, &mr,&context);
 	((block_header *)res)->mem_hndl = mr;
-#endif
+#endif // not cxi
 	ptr = res;
-#endif //MEMPOOL
+#endif //mempool
+#if USE_MEMPOOL	
       }
-
+#endif    
     if (!ptr) CmiAbort("LrtsAlloc");
     return ptr;
 }
@@ -1699,11 +1738,13 @@ void LrtsFree(void *msg)
   int headersize = sizeof(CmiChunkHeader);
   //  char *aligned_addr = (char *)msg + headersize - ALIGNBUF;
   CmiUInt4 size = SIZEFIELD((char*)msg+headersize);
-  MACHSTATE(3, "OFI::LrtsFree");
+  MACHSTATE1(3, "OFI::LrtsFree %p", msg);
+#if USE_MEMPOOL  
   if (size <= context.mempool_lb_size)
     CmiAbort("OFI: mempool lower boundary violation");
   else
     size = ALIGN64(size);
+#endif  
   if(size>=BIG_MSG)
     {
 #if LARGEPAGE
@@ -1711,10 +1752,10 @@ void LrtsFree(void *msg)
       my_free_huge_pages(msg, s);
 #else
 #if CMK_OFI_CXI
-      MACHSTATE(3, "OFI::LrtsFree fi_close is weirdly unsafe ");
-      //      fi_close( (struct fid *)GetMemHndl( (char* )msg  -sizeof(mempool_header)));
-      MACHSTATE(3, "OFI::LrtsFree free msg next ");
-      free((char*)msg-sizeof(out_of_pool_header));
+      MACHSTATE1(3, "OFI::LrtsFree fi_close mr %p", (struct fid *)GetMemHndl( (char* )msg  +sizeof(CmiChunkHeader)));
+      fi_close( (struct fid *)GetMemHndl( (char* )msg  +sizeof(CmiChunkHeader)));
+      MACHSTATE2(3, "OFI::LrtsFree free msg next ptr %p vs ptr %p", GetBaseAllocPtr((char*)msg+sizeof(CmiChunkHeader)), (char *)msg-sizeof(out_of_pool_header));
+      free((char *)msg-sizeof(out_of_pool_header));
 #else
       free((char*)msg);
 #endif
@@ -1893,6 +1934,7 @@ int fill_av_ofi(int myid,
      */
     epnamelen = sizeof(my_epname);
     ret = fi_getname((fid_t)ep, &my_epname, &epnamelen);
+    MACHSTATE1(3, "OFI::fill_av_ofi name %s", my_epname);
     CmiAssert(FI_NAME_MAX >= epnamelen);
     if (ret < 0) {
         CmiAbort("OFI::LrtsInit::fi_getname error");
@@ -2189,6 +2231,11 @@ static int ofi_reg_bind_enable(const void *buf,
 	return(ret);
 }
 
+INLINE_KEYWORD void LrtsPrepareEnvelope(char *msg, int size)
+{
+    CmiSetMsgSize(msg, size);
+    //    CMI_SET_CHECKSUM(msg, size);
+}
 
 #if CMK_ONESIDED_IMPL
 #include "machine-onesided.C"
