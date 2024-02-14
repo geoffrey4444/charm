@@ -508,7 +508,14 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
     if (ret) {
         CmiAbort("OFI::LrtsInit::runtime_init failed");
     }
-
+    /*    
+    int namelength;
+    PMI_KVS_Get_name_length_max(&namelength);
+    char *name1=(char *) malloc(namelength+1);
+    char *name2=(char *) malloc(namelength+1);
+    PMI_KVS_Get_my_name(name1, namelength);
+    CmiPrintf("[%d] PMI keyspace %s\n", *myNodeID, PMI);
+    */    
     /**
      * Hints to filter providers
      * See man fi_getinfo for a list of all filters
@@ -532,6 +539,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
      hints->domain_attr->threading = FI_THREAD_SAFE;
      hints->domain_attr->control_progress = FI_PROGRESS_MANUAL;
      hints->domain_attr->data_progress = FI_PROGRESS_MANUAL;
+     hints->domain_attr->auth_key          =NULL;
      //     hints->ep_attr->type                 = FI_EP_MSG;
 #endif
      hints->domain_attr->resource_mgmt    = FI_RM_ENABLED;
@@ -1736,7 +1744,7 @@ void LrtsFree(void *msg)
 {
 
   int headersize = sizeof(CmiChunkHeader);
-  //  char *aligned_addr = (char *)msg + headersize - ALIGNBUF;
+  char *aligned_addr = (char *)msg + headersize - ALIGNBUF;
   CmiUInt4 size = SIZEFIELD((char*)msg+headersize);
   MACHSTATE1(3, "OFI::LrtsFree %p", msg);
 #if USE_MEMPOOL  
@@ -1793,7 +1801,7 @@ void LrtsExit(int exitcode)
         req = context.recv_reqs[i];
         ret = fi_cancel((fid_t)context.ep, (void *)&(req->context));
         if (ret < 0) CmiAbort("fi_cancel error");
-	//	CmiFree(req->data.recv_buffer);
+	CmiFree(req->data.recv_buffer);
 #if USE_OFIREQUEST_CACHE
         free_request(req);
 #else
@@ -1805,8 +1813,13 @@ void LrtsExit(int exitcode)
     PCQueueDestroy(context.send_queue);
 #endif
 
+#if CMK_OFI_CXI
+    if (context.recv_reqs)
+      CmiFree(context.recv_reqs);
+#else    
     if (context.recv_reqs)
         free(context.recv_reqs);
+#endif    
     if (context.av)
         fi_close((struct fid *)(context.av));
     if (context.cq)
