@@ -103,7 +103,7 @@
 /* ======= This where we define the macros for the 0-99 special MRs ====== */
 
 #define OFI_POSTED_RECV_MR_KEY 0
-
+#define CMK_SMP_SENDQ 1
 /* =======End of Definitions of Performance-Specific Macros =======*/
 
 
@@ -363,7 +363,7 @@ typedef struct OFIContext {
     request_cache_t *request_cache;
 #endif
 
-#if CMK_SMP
+#if CMK_SMP && CMK_SMP_SENDQ
     /**
      * Producer/Consumer Queue used in CMK_SMP mode:
      *  - worker thread pushes messages to the queue
@@ -536,7 +536,8 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
      hints->ep_attr->type                 = FI_EP_RDM;
 #if CMK_OFI_CXI
      hints->ep_attr->protocol             = FI_PROTO_CXI;
-     hints->domain_attr->threading = FI_THREAD_SAFE;
+     //     hints->domain_attr->threading = FI_THREAD_SAFE;
+     hints->domain_attr->threading = FI_THREAD_DOMAIN;
      hints->domain_attr->control_progress = FI_PROGRESS_MANUAL;
      hints->domain_attr->data_progress = FI_PROGRESS_MANUAL;
      hints->domain_attr->auth_key          =NULL;
@@ -696,7 +697,7 @@ if ((context.mr_mode & FI_MR_ENDPOINT)==0)
      * instantiate the virtual or physical network. This opens a "fabric
      * provider". See man fi_fabric for details.
      */
-    CmiPrintf("[%d] PMI_initialized %d : %d\n",*myNodeID, PMI2_Initialized(), PMI_SUCCESS);
+    //    CmiPrintf("[%d] PMI_initialized %d : %d\n",*myNodeID, PMI2_Initialized(), PMI_SUCCESS);
     ret = fi_fabric(prov->fabric_attr, &context.fabric, NULL);
     if (ret < 0) {
       	MACHSTATE1(3, "fi_fabric error: %d\n", ret);
@@ -709,27 +710,14 @@ if ((context.mr_mode & FI_MR_ENDPOINT)==0)
      * hardware port/collection of ports.  Returns a domain object that can be
      * used to create endpoints.  See man fi_domain for details.
      */
-    //    if(*myNodeID==0)
-    //      {
+
     ret = fi_domain(context.fabric, prov, &context.domain, NULL);
     if (ret < 0) {
       MACHSTATE2(3, "[%d] fi_domain error: %d\n",*myNodeID, ret);
       fi_freeinfo(providers);
-      CmiPrintf("[%d] fi_domain error: %d\n", *myNodeID, ret);
-      CmiAbort("OFI::LrtsInit::fi_domain error");
+      //      CmiPrintf("[%d] fi_domain error: %d\n", *myNodeID, ret);
+      CmiAbort("OFI::LrtsInit::fi_domain error, for single node use try --network=single_node_vni");
     }
-	//      }
-	//    else{
-	//      sleep(5);
-	//      	ret = fi_domain(context.fabric, prov, &context.domain, NULL);
-	//	if (ret < 0) {
-	//	  MACHSTATE2(3, "[%d] fi_domain error: %d\n", *myNodeID,ret);
-	//	  fi_freeinfo(providers);
-	//	  CmiPrintf("[%d] fi_domain error: %d\n", *myNodeID, ret);
-	//	  CmiAbort("OFI::LrtsInit::fi_domain error");
-	//	}
-
-    //    }
     /**
      * Create a transport level communication endpoint.  To use the endpoint,
      * it must be bound to completion counters or event queues and enabled,
@@ -833,7 +821,7 @@ if ((context.mr_mode & FI_MR_ENDPOINT)==0)
         }
     }
 
-#if CMK_SMP
+#if CMK_SMP && CMK_SMP_SENDQ
     /**
      * Initialize send queue.
      */
@@ -1116,7 +1104,7 @@ CmiCommHandle LrtsSendFunc(int destNode, int destPE, int size, char *msg, int mo
       MACHSTATE3(3, "sending msg size=%d, hdl=%d, xhdl=%d",CmiGetMsgSize(msg),CmiGetHandler(msg), CmiGetXHandler(msg));
     }
 
-#if CMK_SMP
+#if CMK_SMP && CMK_SMP_SENDQ
     /* Enqueue message */
     MACHSTATE2(2, " --> (PE=%i) enqueuing message (queue depth=%i)",
                CmiMyPe(), PCQueueLength(context.send_queue));
@@ -1523,7 +1511,7 @@ int process_completion_queue()
     return ret;
 }
 
-#if CMK_SMP
+#if CMK_SMP && CMK_SMP_SENDQ
 static inline
 int process_send_queue()
 {
@@ -1615,7 +1603,7 @@ void LrtsAdvanceCommunication(int whileidle)
     {
         processed_count = 0;
         processed_count += process_completion_queue();
-#if CMK_SMP
+#if CMK_SMP && CMK_SMP_SENDQ
         processed_count += process_send_queue();
 #endif
     } while (processed_count > 0);
@@ -1740,6 +1728,22 @@ void* LrtsAlloc(int n_bytes, int header)
     return ptr;
 }
 
+/*#if CMK_SMP && CMK_OFI_CXI
+void mempool_free_thread(void* ptr_free)
+
+{
+
+  slot_header* to_free = (slot_header*)((char*)ptr_free - sizeof(used_header));
+  mempool_type* mptr = to_free->status == -1
+             ? (mempool_type*)(((large_block_header*)(to_free->block_ptr))->mptr)
+             : (mempool_type*)(((block_header*)(to_free->block_ptr))->mptr);
+  CmiLock(mptr->mempoolLock);
+  mempool_free(mptr, ptr_free);
+  CmiUnlock(mptr->mempoolLock);
+}
+#endif
+*/
+
 void LrtsFree(void *msg)
 {
 
@@ -1809,7 +1813,7 @@ void LrtsExit(int exitcode)
 #endif
     }
 
-#if CMK_SMP
+#if CMK_SMP && CMK_SMP_SENDQ
     PCQueueDestroy(context.send_queue);
 #endif
 
