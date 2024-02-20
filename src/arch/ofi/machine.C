@@ -536,8 +536,8 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
      hints->ep_attr->type                 = FI_EP_RDM;
 #if CMK_OFI_CXI
      hints->ep_attr->protocol             = FI_PROTO_CXI;
-     //     hints->domain_attr->threading = FI_THREAD_SAFE;
-     hints->domain_attr->threading = FI_THREAD_DOMAIN;
+     hints->domain_attr->threading = FI_THREAD_SAFE;
+	  //hints->domain_attr->threading = FI_THREAD_DOMAIN;
      hints->domain_attr->control_progress = FI_PROGRESS_MANUAL;
      hints->domain_attr->data_progress = FI_PROGRESS_MANUAL;
      hints->domain_attr->auth_key          =NULL;
@@ -1728,21 +1728,6 @@ void* LrtsAlloc(int n_bytes, int header)
     return ptr;
 }
 
-/*#if CMK_SMP && CMK_OFI_CXI
-void mempool_free_thread(void* ptr_free)
-
-{
-
-  slot_header* to_free = (slot_header*)((char*)ptr_free - sizeof(used_header));
-  mempool_type* mptr = to_free->status == -1
-             ? (mempool_type*)(((large_block_header*)(to_free->block_ptr))->mptr)
-             : (mempool_type*)(((block_header*)(to_free->block_ptr))->mptr);
-  CmiLock(mptr->mempoolLock);
-  mempool_free(mptr, ptr_free);
-  CmiUnlock(mptr->mempoolLock);
-}
-#endif
-*/
 
 void LrtsFree(void *msg)
 {
@@ -2220,7 +2205,9 @@ static int ofi_reg_bind_enable(const void *buf,
 
 	if (ret) {
             MACHSTATE1(3, "fi_mr_reg error: %d\n", ret);
-            CmiAbort("fi_mr_reg error");
+	    char errstring[100];
+	    snprintf(errstring, 100, "fi_mr_reg error: %d", ret);
+            CmiAbort(errstring);
         }
 	else{
 	  MACHSTATE3(3, "fi_mr_reg success: %d buf %p mr %lu\n", ret, buf, fi_mr_key(*mr));
@@ -2228,7 +2215,9 @@ static int ofi_reg_bind_enable(const void *buf,
 	ret = fi_mr_bind(*mr, (struct fid *)context->ep, 0);
 	if (ret) {
             MACHSTATE1(3, "fi_mr_bind error: %d\n", ret);
-            CmiAbort("fi_mr_bind error");
+	    char errstring[100];
+	    snprintf(errstring, 100, "fi_mr_bind error: %d", ret);
+            CmiAbort(errstring);
         }
 	else
 	  {
@@ -2238,7 +2227,9 @@ static int ofi_reg_bind_enable(const void *buf,
 	ret = fi_mr_enable(*mr);
 	if (ret) {
             MACHSTATE1(3, "fi_mr_enable error: %d\n", ret);
-            CmiAbort("fi_mr_enable error");
+	    char errstring[100];
+	    snprintf(errstring, 100, "fi_mr_enable error: %d", ret);
+            CmiAbort(errstring);
         }
 	else
 	  {

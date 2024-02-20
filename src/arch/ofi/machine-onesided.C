@@ -3,27 +3,28 @@ void registerDirectMemory(void *info, const void *addr, int size) {
   uint64_t requested_key = 0;
   int err;
 
-  if((FI_MR_SCALABLE == context.mr_mode) ||
-     (FI_MR_ENDPOINT & context.mr_mode)) {
-    requested_key = __sync_fetch_and_add(&(context.mr_counter), 1);
-  }
-  if(FI_MR_SCALABLE == context.mr_mode){
-    err = fi_mr_reg(context.domain,
-		    addr,
-		    size,
-		    FI_REMOTE_READ | FI_REMOTE_WRITE | FI_READ | FI_WRITE,
-		    0ULL,
-		    requested_key,
-		    0ULL,
-		    &(rdmaInfo->mr),
-		    NULL);
-    if (err) {
-      CmiAbort("registerDirectMemory: fi_mr_reg failed!\n");
-    }
-  }
-  else
+  if(FI_MR_ENDPOINT & context.mr_mode)
     {
       ofi_reg_bind_enable(addr, size, &(rdmaInfo->mr),&context);
+    }
+  else if(FI_MR_SCALABLE == context.mr_mode){
+    requested_key = __sync_fetch_and_add(&(context.mr_counter), 1);
+      err = fi_mr_reg(context.domain,
+		      addr,
+		      size,
+		      FI_REMOTE_READ | FI_REMOTE_WRITE | FI_READ | FI_WRITE,
+		      0ULL,
+		      requested_key,
+		      0ULL,
+		      &(rdmaInfo->mr),
+		      NULL);
+      if (err) {
+	CmiAbort("registerDirectMemory: fi_mr_reg failed!\n");
+      }
+    }
+  else
+    {
+      CmiAbort("registerDirectMemory: fi_mr_reg failed!\n");
     }
   rdmaInfo->key = fi_mr_key(rdmaInfo->mr);
 }
