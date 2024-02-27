@@ -94,6 +94,38 @@
 
 #include "machine.h"
 
+
+// Trace communication thread
+#if CMK_TRACE_ENABLED && CMK_SMP_TRACE_COMMTHREAD
+#define TRACE_THRESHOLD     0.00001
+#undef CMI_MACH_TRACE_USEREVENTS
+#define CMI_MACH_TRACE_USEREVENTS 1
+#else
+#undef CMK_SMP_TRACE_COMMTHREAD
+#define CMK_SMP_TRACE_COMMTHREAD 0
+#endif
+
+#define CMK_TRACE_COMMOVERHEAD 0
+#if CMK_TRACE_ENABLED && CMK_TRACE_COMMOVERHEAD
+#undef CMI_MACH_TRACE_USEREVENTS
+#define CMI_MACH_TRACE_USEREVENTS 1
+#else
+#undef CMK_TRACE_COMMOVERHEAD
+#define CMK_TRACE_COMMOVERHEAD 0
+#endif
+
+#if CMI_MACH_TRACE_USEREVENTS && CMK_TRACE_ENABLED
+CpvStaticDeclare(double, projTraceStart);
+#define  START_EVENT()  CpvAccess(projTraceStart) = CmiWallTimer();
+#define  END_EVENT(x)   traceUserBracketEvent(x, CpvAccess(projTraceStart), CmiWallTimer());
+#define  EVENT_TIME()   CpvAccess(projTraceStart)
+#else
+#define  START_EVENT()
+#define  END_EVENT(x)
+#define  EVENT_TIME()   (0.0)
+#endif
+
+
 /* TODO: macros regarding redefining locks that will affect pcqueue.h*/
 #include "pcqueue.h"
 
@@ -431,6 +463,8 @@ static int fill_av_ofi(int myid, int nnodes, struct fid_ep *ep,
 static int ofi_reg_bind_enable(const void *buf,
 			       size_t len, struct fid_mr **mr, OFIContext *context);
 #endif
+
+
 
 static OFIContext context;
 #if LARGEPAGE
@@ -1011,6 +1045,44 @@ static inline int sendMsg(OFIRequest *req)
     return 0;
 }
 
+const int event_send_short_callback      = 10333;
+const int event_send_rma_callback        = 10444;
+const int event_ofi_send                 = 10555;
+const int event_sendMsg                  = 10556;
+const int event_LrtsSendFunc             = 10557;
+const int event_send_ack_callback        = 10560;
+const int event_rma_read_callback        = 10561;
+const int event_process_short_recv       = 10600;
+const int event_process_long_recv        = 10601;
+const int event_process_long_send_ack    = 10602;
+const int event_recv_callback            = 10610;
+const int event_process_completion_queue = 10650;
+const int event_process_send_queue       = 10660;
+const int event_AdvanceCommunication     = 10666;
+const int event_reg_bind_enable          = 10670;
+static int postInit = 0;
+
+static void registerUserTraceEvents(void) {
+#if CMI_MACH_TRACE_USEREVENTS && CMK_TRACE_ENABLED
+  traceRegisterUserEvent("send_short_callback", event_send_short_callback);
+  traceRegisterUserEvent("send_rma_callback", event_send_rma_callback);
+  traceRegisterUserEvent("ofi_send", event_ofi_send);
+  traceRegisterUserEvent("sendMsg", event_sendMsg);
+  traceRegisterUserEvent("LrtsSendFunc", event_LrtsSendFunc);
+  traceRegisterUserEvent("send_ack_callback", event_send_ack_callback);
+  traceRegisterUserEvent("rma_read_callback", event_rma_read_callback);
+  traceRegisterUserEvent("process_short_recv", event_process_short_recv);
+  traceRegisterUserEvent("process_long_recv", event_process_long_recv);
+  traceRegisterUserEvent("process_long_send_ack", event_process_long_send_ack);
+  traceRegisterUserEvent("recv_callback", event_recv_callback);
+  traceRegisterUserEvent("process_completion_queue", event_process_completion_queue);
+  traceRegisterUserEvent("process_send_queue", event_process_send_queue);
+  traceRegisterUserEvent("reg_bind_enable", event_reg_bind_enable);
+  traceRegisterUserEvent("AdvanceCommunication", event_AdvanceCommunication);
+#endif
+}
+
+
 /**
  * In non-SMP mode, this is used to send a message.
  * In CMK_SMP mode, this is called by a worker thread to send a message.
@@ -1020,10 +1092,15 @@ CmiCommHandle LrtsSendFunc(int destNode, int destPE, int size, char *msg, int mo
 
     int           ret;
     OFIRequest    *req;
-
+#if CMK_SMP_TRACE_COMMTHREAD
+    double startT, endT;
+#endif
     MACHSTATE5(2,
             "OFI::LrtsSendFunc destNode=%i destPE=%i size=%i msg=%p mode=%i {",
             destNode, destPE, size, msg, mode);
+#if CMK_SMP_TRACE_COMMTHREAD
+    startT = CmiWallTimer();
+#endif
 
     CmiSetMsgSize(msg, size);
 
@@ -1103,7 +1180,10 @@ CmiCommHandle LrtsSendFunc(int destNode, int destPE, int size, char *msg, int mo
       req->data.rma_header = rma_header;
       MACHSTATE3(3, "sending msg size=%d, hdl=%d, xhdl=%d",CmiGetMsgSize(msg),CmiGetHandler(msg), CmiGetXHandler(msg));
     }
-
+#if CMK_SMP_TRACE_COMMTHREAD
+    endT = CmiWallTimer();
+    if (endT-startT>=TRACE_THRESHOLD) traceUserBracketEvent(event_LrtsSendFunc, startT, endT);
+#endif
 #if CMK_SMP && CMK_SMP_SENDQ
     /* Enqueue message */
     MACHSTATE2(2, " --> (PE=%i) enqueuing message (queue depth=%i)",
@@ -1127,6 +1207,10 @@ void send_ack_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
      * We are done with the RMA Read operation. Free up the resources.
      */
     OFILongMsg *long_msg;
+#if CMK_SMP_TRACE_COMMTHREAD
+    double startT, endT;
+    startT = CmiWallTimer();
+#endif
 
     MACHSTATE(3, "OFI::send_ack_callback {");
 
@@ -1140,7 +1224,10 @@ void send_ack_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
 #else
     CmiFree(req);
 #endif
-
+#if CMK_SMP_TRACE_COMMTHREAD
+    endT = CmiWallTimer();
+    if (endT-startT>=TRACE_THRESHOLD) traceUserBracketEvent(event_send_ack_callback, startT, endT);
+#endif
     MACHSTATE(3, "} OFI::send_ack_callback done");
 }
 
@@ -1151,6 +1238,10 @@ void rma_read_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
      * An RMA Read operation completed.
      */
     OFILongMsg *long_msg;
+#if CMK_SMP_TRACE_COMMTHREAD
+    double startT, endT;
+    startT = CmiWallTimer();
+#endif
 
     MACHSTATE(3, "OFI::rma_read_callback {");
 
@@ -1186,29 +1277,21 @@ void rma_read_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
          * Pass received message to upper layer.
          */
         MACHSTATE1(3, "--> Finished receiving msg size=%i", CMI_MSG_SIZE(asm_msg));
-	int zerocount=0;
-	for(int ith=0; ith < 10; ith++)
-	  {
-	    if(asm_msg[ith]!=0)
-	      zerocount++;
-	  }
-	if(zerocount>0)
-	  {
-	    int nonzeroprint=0;
-	    for(int ith=0; (ith < 10) && (nonzeroprint <zerocount); ith++)
-	      {
-		if(asm_msg[ith]!=0)
-		  {nonzeroprint++;}
-		MACHSTATE2(3, "msg %i %x",ith, asm_msg[ith]);
-	      }
-	  }
 	MACHSTATE4(3, "received msg size=%d, hdl=%d, xhdl=%d last=%x",CmiGetMsgSize(asm_msg),CmiGetHandler(asm_msg), CmiGetXHandler(asm_msg), asm_msg[CMI_MSG_SIZE(asm_msg)-1]);
-        handleOneRecvedMsg(CMI_MSG_SIZE(asm_msg), asm_msg);
+#if CMK_SMP_TRACE_COMMTHREAD
+	endT = CmiWallTimer();
+	if (endT-startT>=TRACE_THRESHOLD) traceUserBracketEvent(event_rma_read_callback, startT, endT);
+#endif
+	handleOneRecvedMsg(CMI_MSG_SIZE(asm_msg), asm_msg);
     } else {
 #if USE_OFIREQUEST_CACHE
       free_request(req);
 #else
       CmiFree(req);
+#endif
+#if CMK_SMP_TRACE_COMMTHREAD
+    endT = CmiWallTimer();
+    if (endT-startT>=TRACE_THRESHOLD) traceUserBracketEvent(event_rma_read_callback, startT, endT);
 #endif
     }
 
@@ -1226,6 +1309,10 @@ void process_short_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
 
     char    *data;
     size_t  msg_size;
+#if CMK_SMP_TRACE_COMMTHREAD
+    double startT, endT;
+    startT = CmiWallTimer();
+#endif
     MACHSTATE(3, "OFI::process_short_recv");
     data = (char *)req->data.recv_buffer;
     CmiAssert(data);
@@ -1236,6 +1323,10 @@ void process_short_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
     req->data.recv_buffer = CmiAlloc(context.eager_maxsize);
     CmiAssert(req->data.recv_buffer);
     MACHSTATE3(3, "received msg size=%d, hdl=%d, xhdl=%d",CmiGetMsgSize(data),CmiGetHandler(data), CmiGetXHandler(data));
+#if CMK_SMP_TRACE_COMMTHREAD
+    endT = CmiWallTimer();
+    if (endT-startT>=TRACE_THRESHOLD) traceUserBracketEvent(event_process_short_recv, startT, endT);
+#endif
     handleOneRecvedMsg(e->len, data);
 }
 
@@ -1264,6 +1355,10 @@ void process_long_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
     char *lbuf;
     size_t remaining;
     size_t chunk_size;
+#if CMK_SMP_TRACE_COMMTHREAD
+    double startT, endT;
+    startT = CmiWallTimer();
+#endif
     MACHSTATE(3, "OFI::process_long_recv");
     CmiAssert(e->len == sizeof(OFIRmaHeader));
 
@@ -1369,6 +1464,10 @@ void process_long_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
     }
     MACHSTATE4(3, "---> RMA completed lbuf %p rbuf %lu len %lu comp %lu",
 	       lbuf, rbuf, len, long_msg->completion_count);
+#if CMK_SMP_TRACE_COMMTHREAD
+    endT = CmiWallTimer();
+    if (endT-startT>=TRACE_THRESHOLD) traceUserBracketEvent(event_process_long_recv, startT, endT);
+#endif
 }
 
 static inline
@@ -1377,10 +1476,14 @@ void process_long_send_ack(struct fi_cq_tagged_entry *e, OFIRequest *req)
     /**
      * An OFIRmaAck was received; Close memory region and free original msg.
      */
-    MACHSTATE(3, "OFI::process_long_send_ack");
+
     struct fid *mr;
     char *msg;
-
+#if CMK_SMP_TRACE_COMMTHREAD
+    double startT, endT;
+    startT = CmiWallTimer();
+#endif
+    MACHSTATE(3, "OFI::process_long_send_ack");
     mr = (struct fid*)req->data.rma_ack->mr;
     CmiAssert(mr);
     //    fi_close(mr);
@@ -1392,6 +1495,10 @@ void process_long_send_ack(struct fi_cq_tagged_entry *e, OFIRequest *req)
     MACHSTATE2(3, "--> Finished sending msg size=%i msg ptr %p", CMI_MSG_SIZE(msg), msg);
 
     CmiFree(msg);
+#if CMK_SMP_TRACE_COMMTHREAD
+    endT = CmiWallTimer();
+    if (endT-startT>=TRACE_THRESHOLD) traceUserBracketEvent(event_process_long_send_ack, startT, endT);
+#endif
 }
 
 static inline
@@ -1429,7 +1536,10 @@ void recv_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
         MACHSTATE2(3, "--> unknown operation %lu len=%lu", e->tag, e->len);
         CmiAbort("!! Wrong operation !!");
     }
-
+#if CMK_SMP_TRACE_COMMTHREAD
+    double startT, endT;
+    startT = CmiWallTimer();
+#endif
     MACHSTATE2(3, "Reposting recv req %p buf=%p", req, req->data.recv_buffer);
     OFI_RETRY(fi_trecv(context.ep,
                        req->data.recv_buffer,
@@ -1439,7 +1549,10 @@ void recv_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
                        0,
                        OFI_OP_MASK,
                        &req->context));
-
+#if CMK_SMP_TRACE_COMMTHREAD
+    endT = CmiWallTimer();
+    if (endT-startT>=TRACE_THRESHOLD) traceUserBracketEvent(event_recv_callback, startT, endT);
+#endif
     MACHSTATE(3, "} OFI::recv_callback done");
 }
 
@@ -1450,6 +1563,10 @@ int process_completion_queue()
     struct fi_cq_tagged_entry entries[context.cq_entries_count];
     struct fi_cq_err_entry error;
     OFIRequest *req;
+#if CMK_SMP_TRACE_COMMTHREAD
+    double startT, endT;
+    startT = CmiWallTimer();
+#endif
     MACHSTATE(3, "OFI::process_completion_queue");
     ret = fi_cq_read(context.cq, entries, context.cq_entries_count);
     if (ret > 0)
@@ -1508,6 +1625,10 @@ int process_completion_queue()
         }
         CmiAbort("Polling error");
     }
+#if CMK_SMP_TRACE_COMMTHREAD
+    endT = CmiWallTimer();
+    if (endT-startT>=TRACE_THRESHOLD) traceUserBracketEvent(event_process_completion_queue, startT, endT);
+#endif
     return ret;
 }
 
@@ -1517,6 +1638,10 @@ int process_send_queue()
 {
     OFIRequest *req;
     int ret = 0;
+#if CMK_SMP_TRACE_COMMTHREAD
+    double startT, endT;
+    startT = CmiWallTimer();
+#endif
     /**
      * Comm thread sends the next message that is waiting in the send_queue.
      */
@@ -1531,6 +1656,10 @@ int process_send_queue()
         sendMsg(req);
         ret = 1;
     }
+#if CMK_SMP_TRACE_COMMTHREAD
+    endT = CmiWallTimer();
+    if (endT-startT>=TRACE_THRESHOLD) traceUserBracketEvent(event_process_send_queue, startT, endT);
+#endif
     return ret;
 }
 #endif
@@ -1591,12 +1720,25 @@ void LrtsPreCommonInit(int everReturn)
 void LrtsPostCommonInit(int everReturn)
 {
     MACHSTATE(2, "OFI::LrtsPostCommonInit {");
+#if CMI_MACH_TRACE_USEREVENTS && CMK_TRACE_ENABLED
+    CpvInitialize(double, projTraceStart);
+    /* only PE 0 needs to care about registration (to generate sts file). */
+    //if (CmiMyPe() == 0)
+    {
+        registerMachineUserEventsFunction(&registerUserTraceEvents);
+    }
+#endif
+    postInit=1;
     MACHSTATE(2, "} OFI::LrtsPostCommonInit");
 }
 
 void LrtsAdvanceCommunication(int whileidle)
 {
     int processed_count;
+#if CMK_SMP_TRACE_COMMTHREAD
+    double startT, endT;
+    startT = CmiWallTimer();
+#endif
     MACHSTATE(2, "OFI::LrtsAdvanceCommunication {");
 
     do
@@ -1607,7 +1749,10 @@ void LrtsAdvanceCommunication(int whileidle)
         processed_count += process_send_queue();
 #endif
     } while (processed_count > 0);
-
+#if CMK_SMP_TRACE_COMMTHREAD
+    endT = CmiWallTimer();
+    if (endT-startT>=TRACE_THRESHOLD) traceUserBracketEvent(event_AdvanceCommunication, startT, endT);
+#endif
     MACHSTATE(2, "} OFI::LrtsAdvanceCommunication done");
 }
 
@@ -2191,7 +2336,10 @@ static int ofi_reg_bind_enable(const void *buf,
 {
 
         uint32_t  requested_key = __sync_fetch_and_add(&(context->mr_counter), 1);
-
+#if CMK_SMP_TRACE_COMMTHREAD
+	double startT, endT;
+	startT = CmiWallTimer();
+#endif
 	/* Register new MR */
         int ret = fi_mr_reg(context->domain,        /* In:  domain object */
                         buf,                   /* In:  lower memory address */
@@ -2235,7 +2383,10 @@ static int ofi_reg_bind_enable(const void *buf,
 	  {
 	    MACHSTATE2(3, "fi_mr_enable success: %d mr %lu\n", ret, fi_mr_key(*mr));
 	  }
-
+#if CMK_SMP_TRACE_COMMTHREAD
+	endT = CmiWallTimer();
+	if (postInit==1 && ((endT-startT>=TRACE_THRESHOLD))) traceUserBracketEvent(event_reg_bind_enable, startT, endT);
+#endif
 	return(ret);
 }
 
