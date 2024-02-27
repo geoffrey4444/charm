@@ -150,6 +150,7 @@ CpvStaticDeclare(double, projTraceStart);
 /* =====End of Declarations of Machine Specific Variables===== */
 
 #include "machine-lrts.h"
+#include "machine-rdma.h"
 #include "machine-common-core.C"
 
 /* Libfabric headers */
@@ -513,7 +514,7 @@ void my_free_huge_pages(void *ptr, int size)
 
 #endif
 
-#include "machine-rdma.h"
+
 #if CMK_ONESIDED_IMPL
 #include "machine-onesided.h"
 #endif
