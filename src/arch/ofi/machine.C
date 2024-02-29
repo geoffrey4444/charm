@@ -94,8 +94,8 @@
 
 #include "machine.h"
 
-
 // Trace communication thread
+
 #if CMK_TRACE_ENABLED && CMK_SMP_TRACE_COMMTHREAD
 #define TRACE_THRESHOLD     0.00001
 #undef CMI_MACH_TRACE_USEREVENTS
@@ -145,12 +145,12 @@ CpvStaticDeclare(double, projTraceStart);
 
 
 /* =====Beginning of Declarations of Machine Specific Variables===== */
-/* TODO: add any that are related */
-#define OFI_RECV_
+
+
 /* =====End of Declarations of Machine Specific Variables===== */
 
 #include "machine-lrts.h"
-#include "machine-rdma.h"
+
 #include "machine-common-core.C"
 
 /* Libfabric headers */
@@ -514,7 +514,7 @@ void my_free_huge_pages(void *ptr, int size)
 
 #endif
 
-
+#include "machine-rdma.h"
 #if CMK_ONESIDED_IMPL
 #include "machine-onesided.h"
 #endif
@@ -522,354 +522,415 @@ void my_free_huge_pages(void *ptr, int size)
 /* ### Beginning of Machine-startup Related Functions ### */
 void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
 {
-    struct fi_info        *providers;
-    struct fi_info        *prov;
-    struct fi_info        *hints;
-    struct fi_domain_attr domain_attr = {0};
-    struct fi_tx_attr     tx_attr = { 0 };
-    struct fi_cq_attr     cq_attr = { 0 };
-    struct fi_av_attr     av_attr = { (enum fi_av_type)0 };
-    int                   fi_version;
-    size_t                max_header_size;
+  struct fi_info        *providers;
+  struct fi_info        *prov;
+  struct fi_info        *hints;
+  struct fi_domain_attr domain_attr = {0};
+  struct fi_tx_attr     tx_attr = { 0 };
+  struct fi_cq_attr     cq_attr = { 0 };
+  struct fi_av_attr     av_attr = { (enum fi_av_type)0 };
+  int                   fi_version;
+  size_t                max_header_size;
 
-    int i;
-    int ret;
+  int i;
+  int ret;
 
-    /**
-     * Initialize our runtime environment -- e.g. PMI.
-     */
-    ret = runtime_init(myNodeID, numNodes);
-    CmiPrintf("[%d] nodeid %d, numnodes %d\n", *myNodeID, *myNodeID, *numNodes);
-    if (ret) {
-        CmiAbort("OFI::LrtsInit::runtime_init failed");
-    }
-    /*    
-    int namelength;
-    PMI_KVS_Get_name_length_max(&namelength);
-    char *name1=(char *) malloc(namelength+1);
-    char *name2=(char *) malloc(namelength+1);
-    PMI_KVS_Get_my_name(name1, namelength);
-    CmiPrintf("[%d] PMI keyspace %s\n", *myNodeID, PMI);
-    */    
-    /**
-     * Hints to filter providers
-     * See man fi_getinfo for a list of all filters
-     * mode: This OFI machine will pass in context into communication calls
-     * ep_type: Reliable datagram operation
-     * resource_mgmt: Let the provider manage the resources
-     * caps: Capabilities required from the provider. We want to use the
-     *       tagged message queue and rma read APIs.
-     */
-    hints = fi_allocinfo();
-    CmiAssert(NULL != hints);
-     hints->mode = ~0;
-     hints->domain_attr->mode = ~0;
+  /**
+   * Initialize our runtime environment -- e.g. PMI.
+   */
+  ret = runtime_init(myNodeID, numNodes);
+  CmiPrintf("[%d] nodeid %d, numnodes %d\n", *myNodeID, *myNodeID, *numNodes);
+  if (ret) {
+    CmiAbort("OFI::LrtsInit::runtime_init failed");
+  }
+  /*    
+	int namelength;
+	PMI_KVS_Get_name_length_max(&namelength);
+	char *name1=(char *) malloc(namelength+1);
+	char *name2=(char *) malloc(namelength+1);
+	PMI_KVS_Get_my_name(name1, namelength);
+	CmiPrintf("[%d] PMI keyspace %s\n", *myNodeID, PMI);
+  */    
+  /**
+   * Hints to filter providers
+   * See man fi_getinfo for a list of all filters
+   * mode: This OFI machine will pass in context into communication calls
+   * ep_type: Reliable datagram operation
+   * resource_mgmt: Let the provider manage the resources
+   * caps: Capabilities required from the provider. We want to use the
+   *       tagged message queue and rma read APIs.
+   */
+  hints = fi_allocinfo();
+  CmiAssert(NULL != hints);
+  hints->mode = ~0;
+  hints->domain_attr->mode = ~0;
 #if CMK_OFI_CXI
-     hints->domain_attr->mr_mode          = FI_MR_ENDPOINT;
+  hints->domain_attr->mr_mode          = FI_MR_ENDPOINT;
 #endif
-     hints->mode                          = FI_CONTEXT;
-     hints->ep_attr->type                 = FI_EP_RDM;
+  hints->mode                          = FI_CONTEXT;
+  hints->ep_attr->type                 = FI_EP_RDM;
 #if CMK_OFI_CXI
-     hints->ep_attr->protocol             = FI_PROTO_CXI;
-     hints->domain_attr->threading = FI_THREAD_SAFE;
-	  //hints->domain_attr->threading = FI_THREAD_DOMAIN;
-     hints->domain_attr->control_progress = FI_PROGRESS_MANUAL;
-     hints->domain_attr->data_progress = FI_PROGRESS_MANUAL;
-     hints->domain_attr->auth_key          =NULL;
-     //     hints->ep_attr->type                 = FI_EP_MSG;
+  hints->ep_attr->protocol             = FI_PROTO_CXI;
+  hints->domain_attr->threading = FI_THREAD_SAFE;
+  //hints->domain_attr->threading = FI_THREAD_DOMAIN;
+  hints->domain_attr->control_progress = FI_PROGRESS_MANUAL;
+  hints->domain_attr->data_progress = FI_PROGRESS_MANUAL;
+  hints->domain_attr->auth_key          =NULL;
+  //     hints->ep_attr->type                 = FI_EP_MSG;
 #endif
-     hints->domain_attr->resource_mgmt    = FI_RM_ENABLED;
-     hints->caps                          = FI_TAGGED;
-     hints->caps                         |= FI_RMA;
-     hints->caps                         |= FI_REMOTE_READ;
+  hints->domain_attr->resource_mgmt    = FI_RM_ENABLED;
+  hints->caps                          = FI_TAGGED;
+  hints->caps                         |= FI_RMA;
+  hints->caps                         |= FI_REMOTE_READ;
+#if CMK_OFI_CXI
+  // Figure out which NIC we should request based on the one that
+  // should be closest.  
+       /* This is overly complicated for several reasons:
 
-    /**
-     * FI_VERSION provides binary backward and forward compatibility support
-     * Specify the version of OFI this machine is coded to, the provider will
-     * select struct layouts that are compatible with this version.
-     */
-    //    fi_version = FI_VERSION(1, 15);
-    // CXI versions itself differently from OFI
+	* 1. The hardware itself is not built to have the numerical ID
+	* ordering of different types of hardware correlate with
+	* proximity at all.  E.g., on frontier core 0 is in NUMA 0 which
+	* means it is closest to GPU 4 and HSN (NIC) 2, but is a direct
+	* peer of cores 1-15.  So, proximal ordering outside of type
+	* should not be considered predictive of proximity.  That
+	* relationship has to be detected by other means.
+
+	* 2. HWLOC doesn't have a hwloc_get_closest_nic because... NIC
+	* doesn't even rate an object type in their ontology, let
+	* alone get first class treatment.  But it is the portable
+	* hardware interrogation API we have to hand.  So, instead we
+	* get our NUMAnode, and then get the PCI objects inside
+	* it. Then get the Ethernet that is also an HSN within that.
+
+	* 3. Likewise the 1:1 relationship we assume here between
+	* cxi[0..3] and hsn[0..3] is informed speculation backed up by
+	* no documentation.  Because, why have cxi0..3 at all if they
+	* don't correlate with the underlying hsn0..3?  We assume the
+	* designers aren't insane or malicious, just stuck on the other
+	* side of an NDA.
+
+	* 4. LrtsInit is of necessity fairly early in the startup
+	* process, so a lot of the infrastructure we might otherwise rely
+	* upon hasn't been set up yet.  But, we do have the hwloc
+	* topology and cray-pmi.
+	*/
+       /*
+       int myRank;
+  PMI_Get_rank(&myRank);
+  cmi_hwloc_obj_t myNUMA = cmi_hwloc_get_numanode_obj_by_os_index(topology, myRank);
+  if(myNUMA!=NULL){
+    int myPCIdepth=cmi_hwloc_get_depth(topology, HWLOC_OBJ_PCI_DEVICE);
+    for(auto pciobj=
+	        cmi_hwloc_get_obj_below_by_type(topology,
+						myNUMA,
+						HWLOC_OBJ_PCI_DEVICE,
+
+    cmi_hwloc_obj_t myPCIs=
+				      NULL,
+				      "hsn",
+				      unsigned long flags);
+
+  }
+         */
+#endif
+
+  int myNet= 0;
+  char myDomainName[5];
+  snprintf(myDomainName,5, "cxi%d", myNet);
+
+  /**
+   * FI_VERSION provides binary backward and forward compatibility support
+   * Specify the version of OFI this machine is coded to, the provider will
+   * select struct layouts that are compatible with this version.
+   */
+  //    fi_version = FI_VERSION(1, 15);
+  // CXI versions itself differently from OFI
 
 #if CMK_OFI_CXI
-    /* CXI has its own versioning, so just use whatever the build env
-       is until we come up with some CXI version specific changes */
-    fi_version = FI_VERSION(FI_MAJOR_VERSION, FI_MINOR_VERSION);
+  /* CXI has its own versioning, so just use whatever the build env
+     is until we come up with some CXI version specific changes */
+  fi_version = FI_VERSION(FI_MAJOR_VERSION, FI_MINOR_VERSION);
 #else
-    fi_version = FI_VERSION(1, 0);
+  fi_version = FI_VERSION(1, 0);
 #endif
-    ret = fi_getinfo(fi_version, NULL, NULL, 0ULL, hints, &providers);
+  ret = fi_getinfo(fi_version, NULL, NULL, 0ULL, hints, &providers);
 
-    if (ret < 0) {
-        CmiAbort("OFI::LrtsInit::fi_getinfo error");
-    }
+  if (ret < 0) {
+    CmiAbort("OFI::LrtsInit::fi_getinfo error");
+  }
 
-    if (providers == NULL) {
-        CmiAbort("OFI::LrtsInit::No provider found");
-    }
+  if (providers == NULL) {
+    CmiAbort("OFI::LrtsInit::No provider found");
+  }
 
 #if 1
-    // useful for debugging new OFI
-    for(fi_info *aprov = providers; aprov!=NULL; aprov=aprov->next)
-      {
-	OFI_INFO("aprovider: %s domain %s\n", aprov->fabric_attr->prov_name, aprov->domain_attr->name);
-	if(strncmp(aprov->domain_attr->name,"cxi0",4)==0)
-	  {
-	    prov = aprov;
-	    /**
-	     * Here we elect to use the cxi0 provider from the list.
-	     */
-	  }
-	/*	else
-	  {
-	    if(strncmp(aprov->domain_attr->name,"cxi1",4)==0)
-	      {
+  // useful for debugging new OFI
+  for(fi_info *aprov = providers; aprov!=NULL; aprov=aprov->next)
+    {
+      // if we're running multiple processes per node, we should
+      // choose the CXI interface closest to our placement.  This is
+      // a little awkward as we're at an information low moment
+      // early in the bootstrapping process.
+      OFI_INFO("aprovider: %s domain %s\n", aprov->fabric_attr->prov_name, aprov->domain_attr->name);
+      if(strncmp(aprov->domain_attr->name,myDomainName,4)==0)
+	//	CmiPrintf("[%d] would use domain %s\n", *myNodeID, myDomainName);
+	//	if(strncmp(aprov->domain_attr->name,"cxi0",4)==0)
+	{
+	  prov = aprov;
+	  /**
+	   * Here we elect to use the cxi0 provider from the list.
+	   */
+	}
+      /*	else
+		{
+		if(strncmp(aprov->domain_attr->name,"cxi1",4)==0)
+		{
 		prov = aprov;
 		// cxi1?
-	      }
-	      }
-	*/
-      }
-#endif
-    OFI_INFO("[%d]provider: %s\n", *myNodeID, prov->fabric_attr->prov_name);
-    OFI_INFO("[%d]domain: %s\n", *myNodeID, prov->domain_attr->name);
-    OFI_INFO("control progress: %d\n", prov->domain_attr->control_progress);
-    OFI_INFO("data progress: %d\n", prov->domain_attr->data_progress);
-
-    context.inject_maxsize = prov->tx_attr->inject_size;
-    OFI_INFO("maximum inject message size: %ld\n", context.inject_maxsize);
-
-    context.eager_maxsize = OFI_EAGER_MAXSIZE_DEFAULT;
-    CmiGetArgInt(*argv, "+ofi_eager_maxsize", (int*)&context.eager_maxsize);
-    if (context.eager_maxsize > prov->ep_attr->max_msg_size)
-        CmiAbort("OFI::LrtsInit::Eager max size > max msg size.");
-    if (context.eager_maxsize > OFI_EAGER_MAXSIZE_MAX || context.eager_maxsize < 0)
-        CmiAbort("OFI::LrtsInit::Eager max size range error.");
-    max_header_size = (sizeof(OFIRmaHeader) >= sizeof(OFIRmaAck)) ? sizeof(OFIRmaHeader) : sizeof(OFIRmaAck);
-    if (context.eager_maxsize < max_header_size)
-        CmiAbort("OFI::LrtsInit::Eager max size too small to fit headers.");
-    OFI_INFO("eager maximum message size: %ld (maximum header size: %ld)\n",
-             context.eager_maxsize, max_header_size);
-
-    context.cq_entries_count = OFI_CQ_ENTRIES_COUNT_DEFAULT;
-    CmiGetArgInt(*argv, "+ofi_cq_entries_count", (int*)&context.cq_entries_count);
-    if (context.cq_entries_count > OFI_CQ_ENTRIES_COUNT_MAX || context.cq_entries_count <= 0)
-        CmiAbort("OFI::LrtsInit::Cq entries count range error");
-    OFI_INFO("cq entries count: %ld\n", context.cq_entries_count);
-
-    context.use_inject = OFI_USE_INJECT_DEFAULT;
-    CmiGetArgInt(*argv, "+ofi_use_inject", &context.use_inject);
-    if (context.use_inject < 0)
-        CmiAbort("OFI::LrtsInit::Use inject value error");
-    OFI_INFO("use inject: %d\n", context.use_inject);
-
-    context.rma_maxsize = prov->ep_attr->max_msg_size;
-#if CMK_OFI_CXI
-    context.mr_mode = prov->domain_attr->mr_mode;
-    OFI_INFO("requested mr mode: 0x%x\n", FI_MR_ENDPOINT);
-OFI_INFO("requested mr mode & mr_mode: 0x%x\n", (FI_MR_ENDPOINT) & context.mr_mode);
-#else
-    // the old code path uses the defunct enum
-    context.mr_mode = static_cast<fi_mr_mode>(prov->domain_attr->mr_mode);
-#endif
-    // start at 51 for the normal stuff, like pool messages
-    context.mr_counter = 51;
-    OFI_INFO("maximum rma size: %ld\n", context.rma_maxsize);
-    OFI_INFO("mr mode: 0x%x\n", context.mr_mode);
-
-    OFI_INFO("mr virtual address support : 0x%x\n", context.mr_mode & FI_MR_VIRT_ADDR);
-
-
-#if CMK_OFI_CXI
-if ((context.mr_mode & FI_MR_ENDPOINT)==0)
-      CmiAbort("OFI::LrtsInit::Unsupported MR mode FI_MR_ENDPOINT");
-#else
-    /* keeping this for now, should debug this on a non-cray and make
-       sure we get a basic OFI working there without these defunct MR
-       modes.  Currently, we don't actually care about non CXI OFI,
-       but it could be good on AWS EFA and potentially good on future
-       platforms where there is an optimal provider for the underlying
-       hardware. */
-    if ((context.mr_mode != FI_MR_BASIC) &&
-        (context.mr_mode != FI_MR_SCALABLE)) {
-        CmiAbort("OFI::LrtsInit::Unsupported MR mode");
+		}
+		}
+      */
     }
 #endif
-    OFI_INFO("use memory pool: %d\n", USE_MEMPOOL);
+  OFI_INFO("[%d]provider: %s\n", *myNodeID, prov->fabric_attr->prov_name);
+  OFI_INFO("[%d]domain: %s\n", *myNodeID, prov->domain_attr->name);
+  OFI_INFO("control progress: %d\n", prov->domain_attr->control_progress);
+  OFI_INFO("data progress: %d\n", prov->domain_attr->data_progress);
+
+  context.inject_maxsize = prov->tx_attr->inject_size;
+  OFI_INFO("maximum inject message size: %ld\n", context.inject_maxsize);
+
+  context.eager_maxsize = OFI_EAGER_MAXSIZE_DEFAULT;
+  CmiGetArgInt(*argv, "+ofi_eager_maxsize", (int*)&context.eager_maxsize);
+  if (context.eager_maxsize > prov->ep_attr->max_msg_size)
+    CmiAbort("OFI::LrtsInit::Eager max size > max msg size.");
+  if (context.eager_maxsize > OFI_EAGER_MAXSIZE_MAX || context.eager_maxsize < 0)
+    CmiAbort("OFI::LrtsInit::Eager max size range error.");
+  max_header_size = (sizeof(OFIRmaHeader) >= sizeof(OFIRmaAck)) ? sizeof(OFIRmaHeader) : sizeof(OFIRmaAck);
+  if (context.eager_maxsize < max_header_size)
+    CmiAbort("OFI::LrtsInit::Eager max size too small to fit headers.");
+  OFI_INFO("eager maximum message size: %ld (maximum header size: %ld)\n",
+	   context.eager_maxsize, max_header_size);
+
+  context.cq_entries_count = OFI_CQ_ENTRIES_COUNT_DEFAULT;
+  CmiGetArgInt(*argv, "+ofi_cq_entries_count", (int*)&context.cq_entries_count);
+  if (context.cq_entries_count > OFI_CQ_ENTRIES_COUNT_MAX || context.cq_entries_count <= 0)
+    CmiAbort("OFI::LrtsInit::Cq entries count range error");
+  OFI_INFO("cq entries count: %ld\n", context.cq_entries_count);
+
+  context.use_inject = OFI_USE_INJECT_DEFAULT;
+  CmiGetArgInt(*argv, "+ofi_use_inject", &context.use_inject);
+  if (context.use_inject < 0)
+    CmiAbort("OFI::LrtsInit::Use inject value error");
+  OFI_INFO("use inject: %d\n", context.use_inject);
+
+  context.rma_maxsize = prov->ep_attr->max_msg_size;
+#if CMK_OFI_CXI
+  context.mr_mode = prov->domain_attr->mr_mode;
+  OFI_INFO("requested mr mode: 0x%x\n", FI_MR_ENDPOINT);
+  OFI_INFO("requested mr mode & mr_mode: 0x%x\n", (FI_MR_ENDPOINT) & context.mr_mode);
+#else
+  // the old code path uses the defunct enum
+  context.mr_mode = static_cast<fi_mr_mode>(prov->domain_attr->mr_mode);
+#endif
+  // start at 51 for the normal stuff, like pool messages
+  context.mr_counter = 51;
+  OFI_INFO("maximum rma size: %ld\n", context.rma_maxsize);
+  OFI_INFO("mr mode: 0x%x\n", context.mr_mode);
+
+  OFI_INFO("mr virtual address support : 0x%x\n", context.mr_mode & FI_MR_VIRT_ADDR);
+
+
+#if CMK_OFI_CXI
+  if ((context.mr_mode & FI_MR_ENDPOINT)==0)
+    CmiAbort("OFI::LrtsInit::Unsupported MR mode FI_MR_ENDPOINT");
+#else
+  /* keeping this for now, should debug this on a non-cray and make
+     sure we get a basic OFI working there without these defunct MR
+     modes.  Currently, we don't actually care about non CXI OFI,
+     but it could be good on AWS EFA and potentially good on future
+     platforms where there is an optimal provider for the underlying
+     hardware. */
+  if ((context.mr_mode != FI_MR_BASIC) &&
+      (context.mr_mode != FI_MR_SCALABLE)) {
+    CmiAbort("OFI::LrtsInit::Unsupported MR mode");
+  }
+#endif
+  OFI_INFO("use memory pool: %d\n", USE_MEMPOOL);
 
 #if USE_MEMPOOL
-    size_t mempool_init_size_mb = MEMPOOL_INIT_SIZE_MB_DEFAULT;
-    CmiGetArgInt(*argv, "+ofi_mempool_init_size_mb", (int*)&mempool_init_size_mb);
-    context.mempool_init_size = mempool_init_size_mb * ONE_MB;
+  size_t mempool_init_size_mb = MEMPOOL_INIT_SIZE_MB_DEFAULT;
+  CmiGetArgInt(*argv, "+ofi_mempool_init_size_mb", (int*)&mempool_init_size_mb);
+  context.mempool_init_size = mempool_init_size_mb * ONE_MB;
 
-    size_t mempool_expand_size_mb = MEMPOOL_EXPAND_SIZE_MB_DEFAULT;
-    CmiGetArgInt(*argv, "+ofi_mempool_expand_size_mb", (int*)&mempool_expand_size_mb);
-    context.mempool_expand_size = mempool_expand_size_mb * ONE_MB;
+  size_t mempool_expand_size_mb = MEMPOOL_EXPAND_SIZE_MB_DEFAULT;
+  CmiGetArgInt(*argv, "+ofi_mempool_expand_size_mb", (int*)&mempool_expand_size_mb);
+  context.mempool_expand_size = mempool_expand_size_mb * ONE_MB;
 
-    long long mempool_max_size_mb = MEMPOOL_MAX_SIZE_MB_DEFAULT;
-    CmiGetArgInt(*argv, "+ofi_mempool_max_size_mb", (int*)&mempool_max_size_mb);
-    context.mempool_max_size = mempool_max_size_mb * ONE_MB;
+  long long mempool_max_size_mb = MEMPOOL_MAX_SIZE_MB_DEFAULT;
+  CmiGetArgInt(*argv, "+ofi_mempool_max_size_mb", (int*)&mempool_max_size_mb);
+  context.mempool_max_size = mempool_max_size_mb * ONE_MB;
 
-    context.mempool_lb_size = MEMPOOL_LB_DEFAULT;
-    CmiGetArgInt(*argv, "+ofi_mempool_lb_size", (int*)&context.mempool_lb_size);
+  context.mempool_lb_size = MEMPOOL_LB_DEFAULT;
+  CmiGetArgInt(*argv, "+ofi_mempool_lb_size", (int*)&context.mempool_lb_size);
 
-    context.mempool_rb_size = MEMPOOL_RB_DEFAULT;
-    CmiGetArgInt(*argv, "+ofi_mempool_rb_size", (int*)&context.mempool_rb_size);
+  context.mempool_rb_size = MEMPOOL_RB_DEFAULT;
+  CmiGetArgInt(*argv, "+ofi_mempool_rb_size", (int*)&context.mempool_rb_size);
 
-    if (context.mempool_lb_size > context.mempool_rb_size)
-        CmiAbort("OFI::LrtsInit::Mempool left border should be less or equal to right border");
+  if (context.mempool_lb_size > context.mempool_rb_size)
+    CmiAbort("OFI::LrtsInit::Mempool left border should be less or equal to right border");
 
-    OFI_INFO("mempool init size: %ld\n", context.mempool_init_size);
-    OFI_INFO("mempool expand size: %ld\n", context.mempool_expand_size);
-    OFI_INFO("mempool max size: %lld\n", context.mempool_max_size);
-    OFI_INFO("mempool left border size: %ld\n", context.mempool_lb_size);
-    OFI_INFO("mempool right border size: %ld\n", context.mempool_rb_size);
+  OFI_INFO("mempool init size: %ld\n", context.mempool_init_size);
+  OFI_INFO("mempool expand size: %ld\n", context.mempool_expand_size);
+  OFI_INFO("mempool max size: %lld\n", context.mempool_max_size);
+  OFI_INFO("mempool left border size: %ld\n", context.mempool_lb_size);
+  OFI_INFO("mempool right border size: %ld\n", context.mempool_rb_size);
 #endif
 
-    /**
-     * Open fabric
-     * The getinfo struct returns a fabric attribute struct that can be used to
-     * instantiate the virtual or physical network. This opens a "fabric
-     * provider". See man fi_fabric for details.
-     */
-    //    CmiPrintf("[%d] PMI_initialized %d : %d\n",*myNodeID, PMI2_Initialized(), PMI_SUCCESS);
-    ret = fi_fabric(prov->fabric_attr, &context.fabric, NULL);
-    if (ret < 0) {
-      	MACHSTATE1(3, "fi_fabric error: %d\n", ret);
-        fi_freeinfo(providers);
-        CmiAbort("OFI::LrtsInit::fi_fabric error");
-    }
+  /**
+   * Open fabric
+   * The getinfo struct returns a fabric attribute struct that can be used to
+   * instantiate the virtual or physical network. This opens a "fabric
+   * provider". See man fi_fabric for details.
+   */
+  //    CmiPrintf("[%d] PMI_initialized %d : %d\n",*myNodeID, PMI2_Initialized(), PMI_SUCCESS);
+  ret = fi_fabric(prov->fabric_attr, &context.fabric, NULL);
+  if (ret < 0) {
+    MACHSTATE1(3, "fi_fabric error: %d\n", ret);
+    fi_freeinfo(providers);
+    CmiAbort("OFI::LrtsInit::fi_fabric error");
+  }
 
-    /**
-     * Create the access domain, which is the physical or virtual network or
-     * hardware port/collection of ports.  Returns a domain object that can be
-     * used to create endpoints.  See man fi_domain for details.
-     */
+  /**
+   * Create the access domain, which is the physical or virtual network or
+   * hardware port/collection of ports.  Returns a domain object that can be
+   * used to create endpoints.  See man fi_domain for details.
+   */
 
-    ret = fi_domain(context.fabric, prov, &context.domain, NULL);
-    if (ret < 0) {
-      MACHSTATE2(3, "[%d] fi_domain error: %d\n",*myNodeID, ret);
-      fi_freeinfo(providers);
-      //      CmiPrintf("[%d] fi_domain error: %d\n", *myNodeID, ret);
-      CmiAbort("OFI::LrtsInit::fi_domain error, for single node use try --network=single_node_vni");
-    }
-    /**
-     * Create a transport level communication endpoint.  To use the endpoint,
-     * it must be bound to completion counters or event queues and enabled,
-     * and the resources consumed by it, such as address vectors, counters,
-     * completion queues, etc. See man fi_endpoint for more details.
-     */
-    ret = fi_endpoint(context.domain, /* In:  Domain object   */
-                      prov,           /* In:  Provider        */
-                      &context.ep,    /* Out: Endpoint object */
-                      NULL);          /* Optional context     */
-    if (ret < 0) {
-      	MACHSTATE1(3, "fi_endpoint error: %d\n", ret);
-        fi_freeinfo(providers);
-        CmiAbort("OFI::LrtsInit::fi_endpoint error %d", ret);
-    }
+  ret = fi_domain(context.fabric, prov, &context.domain, NULL);
+  if (ret < 0) {
+    MACHSTATE2(3, "[%d] fi_domain error: %d\n",*myNodeID, ret);
+    fi_freeinfo(providers);
+    //      CmiPrintf("[%d] fi_domain error: %d\n", *myNodeID, ret);
+    CmiAbort("OFI::LrtsInit::fi_domain error, for single node use try --network=single_node_vni");
+  }
+  /**
+   * Create a transport level communication endpoint.  To use the endpoint,
+   * it must be bound to completion counters or event queues and enabled,
+   * and the resources consumed by it, such as address vectors, counters,
+   * completion queues, etc. See man fi_endpoint for more details.
+   */
+  ret = fi_endpoint(context.domain, /* In:  Domain object   */
+		    prov,           /* In:  Provider        */
+		    &context.ep,    /* Out: Endpoint object */
+		    NULL);          /* Optional context     */
+  if (ret < 0) {
+    MACHSTATE1(3, "fi_endpoint error: %d\n", ret);
+    fi_freeinfo(providers);
+    CmiAbort("OFI::LrtsInit::fi_endpoint error %d", ret);
+  }
 
-    /**
-     * Create the objects that will be bound to the endpoint.
-     * The objects include:
-     *     - completion queue for events
-     *     - address vector of other endpoint addresses
-     */
-    cq_attr.format = FI_CQ_FORMAT_TAGGED;
-    ret = fi_cq_open(context.domain, &cq_attr, &context.cq, NULL);
-    if (ret < 0) {
-        CmiAbort("OFI::LrtsInit::fi_cq_open error");
-    }
+  /**
+   * Create the objects that will be bound to the endpoint.
+   * The objects include:
+   *     - completion queue for events
+   *     - address vector of other endpoint addresses
+   */
+  cq_attr.format = FI_CQ_FORMAT_TAGGED;
+  ret = fi_cq_open(context.domain, &cq_attr, &context.cq, NULL);
+  if (ret < 0) {
+    CmiAbort("OFI::LrtsInit::fi_cq_open error");
+  }
 
-    /**
-     * Since the communications happen between Nodes and that each Node
-     * has a number (NodeNo), we can use the Address Vector in FI_AV_TABLE
-     * mode. The addresses of the Nodes simply need to be inserted in order
-     * so that the NodeNo becomes the index in the AV. The advantage being
-     * that the fi_addrs are stored by the OFI provider.
-     */
-    av_attr.type = FI_AV_TABLE;
-    ret = fi_av_open(context.domain, &av_attr, &context.av, NULL);
-    if (ret < 0) {
-        CmiAbort("OFI::LrtsInit::fi_av_open error");
-    }
+  /**
+   * Since the communications happen between Nodes and that each Node
+   * has a number (NodeNo), we can use the Address Vector in FI_AV_TABLE
+   * mode. The addresses of the Nodes simply need to be inserted in order
+   * so that the NodeNo becomes the index in the AV. The advantage being
+   * that the fi_addrs are stored by the OFI provider.
+   */
+  av_attr.type = FI_AV_TABLE;
+  ret = fi_av_open(context.domain, &av_attr, &context.av, NULL);
+  if (ret < 0) {
+    CmiAbort("OFI::LrtsInit::fi_av_open error");
+  }
 
-    /**
-     * Bind the CQ and AV to the endpoint object.
-     */
-    ret = fi_ep_bind(context.ep,
-                     (fid_t)context.cq,
-                     FI_RECV | FI_TRANSMIT);
-    if (ret < 0) {
-        CmiAbort("OFI::LrtsInit::fi_bind EP-CQ error");
-    }
-    ret = fi_ep_bind(context.ep,
-                     (fid_t)context.av,
-                     0);
-    if (ret < 0) {
-        CmiAbort("OFI::LrtsInit::fi_bind EP-AV error");
-    }
+  /**
+   * Bind the CQ and AV to the endpoint object.
+   */
+  ret = fi_ep_bind(context.ep,
+		   (fid_t)context.cq,
+		   FI_RECV | FI_TRANSMIT);
+  if (ret < 0) {
+    CmiAbort("OFI::LrtsInit::fi_bind EP-CQ error");
+  }
+  ret = fi_ep_bind(context.ep,
+		   (fid_t)context.av,
+		   0);
+  if (ret < 0) {
+    CmiAbort("OFI::LrtsInit::fi_bind EP-AV error");
+  }
 
-    /**
-     * Enable the endpoint for communication
-     * This commits the bind operations.
-     */
-    ret = fi_enable(context.ep);
-    if (ret < 0) {
-        CmiAbort("OFI::LrtsInit::fi_enable error");
-    }
+  /**
+   * Enable the endpoint for communication
+   * This commits the bind operations.
+   */
+  ret = fi_enable(context.ep);
+  if (ret < 0) {
+    CmiAbort("OFI::LrtsInit::fi_enable error");
+  }
 
-    OFI_INFO("use request cache: %d\n", USE_OFIREQUEST_CACHE);
+  OFI_INFO("use request cache: %d\n", USE_OFIREQUEST_CACHE);
 
 #if USE_OFIREQUEST_CACHE
-    /**
-     * Create request cache.
-     */
-    context.request_cache = create_request_cache();
+  /**
+   * Create request cache.
+   */
+  context.request_cache = create_request_cache();
 #endif
 
-    /**
-     * Create local receive buffers and pre-post them.
-     */
-    context.num_recv_reqs = OFI_NUM_RECV_REQS_DEFAULT;
-    CmiGetArgInt(*argv, "+ofi_num_recvs", &context.num_recv_reqs);
-    if (context.num_recv_reqs > OFI_NUM_RECV_REQS_MAX || context.num_recv_reqs <= 0)
-        CmiAbort("OFI::LrtsInit::Num recv reqs range error");
-    OFI_INFO("number of pre-allocated recvs: %i\n", context.num_recv_reqs);
+  /**
+   * Create local receive buffers and pre-post them.
+   */
+  context.num_recv_reqs = OFI_NUM_RECV_REQS_DEFAULT;
+  CmiGetArgInt(*argv, "+ofi_num_recvs", &context.num_recv_reqs);
+  if (context.num_recv_reqs > OFI_NUM_RECV_REQS_MAX || context.num_recv_reqs <= 0)
+    CmiAbort("OFI::LrtsInit::Num recv reqs range error");
+  OFI_INFO("number of pre-allocated recvs: %i\n", context.num_recv_reqs);
 
-    /**
-     * Exchange EP names and insert them into the AV.
-     */
-    if (CmiGetArgFlag(*argv, "+ofi_runtime_tcp")) {
-        OFI_INFO("exchanging addresses over TCP\n");
-        ret = fill_av(*myNodeID, *numNodes, context.ep,
-                       context.av, context.cq);
-        if (ret < 0) {
-            CmiAbort("OFI::LrtsInit::fill_av");
-        }
-    } else {
-        OFI_INFO("exchanging addresses over OFI\n");
-        ret = fill_av_ofi(*myNodeID, *numNodes, context.ep,
-                           context.av, context.cq);
-        if (ret < 0) {
-            CmiAbort("OFI::LrtsInit::fill_av_ofi");
-        }
+  /**
+   * Exchange EP names and insert them into the AV.
+   */
+  if (CmiGetArgFlag(*argv, "+ofi_runtime_tcp")) {
+    OFI_INFO("exchanging addresses over TCP\n");
+    ret = fill_av(*myNodeID, *numNodes, context.ep,
+		  context.av, context.cq);
+    if (ret < 0) {
+      CmiAbort("OFI::LrtsInit::fill_av");
     }
+  } else {
+    OFI_INFO("exchanging addresses over OFI\n");
+    ret = fill_av_ofi(*myNodeID, *numNodes, context.ep,
+		      context.av, context.cq);
+    if (ret < 0) {
+      CmiAbort("OFI::LrtsInit::fill_av_ofi");
+    }
+  }
 
 #if CMK_SMP && CMK_SMP_SENDQ
-    /**
-     * Initialize send queue.
-     */
-    context.send_queue = PCQueueCreate();
+  /**
+   * Initialize send queue.
+   */
+  context.send_queue = PCQueueCreate();
 #endif
 
-    /**
-     * Free providers info since it's not needed anymore.
-     */
-    fi_freeinfo(hints);
-    hints = NULL;
-    fi_freeinfo(providers);
-    providers = NULL;
+  /**
+   * Free providers info since it's not needed anymore.
+   */
+  fi_freeinfo(hints);
+  hints = NULL;
+  fi_freeinfo(providers);
+  providers = NULL;
 }
 
 static inline
@@ -1059,7 +1120,6 @@ const int event_process_long_send_ack    = 10602;
 const int event_recv_callback            = 10610;
 const int event_process_completion_queue = 10650;
 const int event_process_send_queue       = 10660;
-const int event_AdvanceCommunication     = 10666;
 const int event_reg_bind_enable          = 10670;
 static int postInit = 0;
 
@@ -1079,7 +1139,6 @@ static void registerUserTraceEvents(void) {
   traceRegisterUserEvent("process_completion_queue", event_process_completion_queue);
   traceRegisterUserEvent("process_send_queue", event_process_send_queue);
   traceRegisterUserEvent("reg_bind_enable", event_reg_bind_enable);
-  traceRegisterUserEvent("AdvanceCommunication", event_AdvanceCommunication);
 #endif
 }
 
@@ -1736,10 +1795,6 @@ void LrtsPostCommonInit(int everReturn)
 void LrtsAdvanceCommunication(int whileidle)
 {
     int processed_count;
-#if CMK_SMP_TRACE_COMMTHREAD
-    double startT, endT;
-    startT = CmiWallTimer();
-#endif
     MACHSTATE(2, "OFI::LrtsAdvanceCommunication {");
 
     do
@@ -1750,10 +1805,6 @@ void LrtsAdvanceCommunication(int whileidle)
         processed_count += process_send_queue();
 #endif
     } while (processed_count > 0);
-#if CMK_SMP_TRACE_COMMTHREAD
-    endT = CmiWallTimer();
-    if (endT-startT>=TRACE_THRESHOLD) traceUserBracketEvent(event_AdvanceCommunication, startT, endT);
-#endif
     MACHSTATE(2, "} OFI::LrtsAdvanceCommunication done");
 }
 
@@ -1771,29 +1822,14 @@ void LrtsDrainResources() /* used when exiting */
 }
 
 #if USE_MEMPOOL
+/* useful for Onesided so that it can avoid per buffer overheads,
+   which will otherwise totally dominate most micro benchmarks in an
+   unpleasant way.  Basically same logic as LrtsAlloc, just no
+   converse header */
+
 void* LrtsPoolAlloc(int n_bytes)
 {
-  char *ptr = NULL;
-  size_t size = n_bytes;
-
-  CmiAbort("LrtsPoolAlloc not supported, why are you calling this?");
-    if (size <= context.mempool_lb_size || size >= context.mempool_rb_size)
-      {
-	posix_memalign((void **)&ptr,ALIGNBUF, size);
-#if CMK_OFI_CXI
-
-	// bind and enable the MR
-	struct fid_mr *mr;
-	ofi_reg_bind_enable(ptr, size, &mr,&context);
-	((block_header *)ptr)->mem_hndl = mr;
-	//	 ptr+=sizeof(used_header);
-#endif
-      }
-    else
-      ptr = (char *) mempool_malloc(CpvAccess(mempool), size, 1);
-    MACHSTATE2(3, "LrtsPoolAlloc ptr=%p len=%lu\n", ptr, size);
-    if (!ptr) CmiAbort("LrtsPoolAlloc");
-    return ptr;
+  return(LrtsAlloc(n_bytes,0));
 }
 #endif
 
