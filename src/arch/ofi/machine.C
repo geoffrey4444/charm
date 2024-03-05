@@ -634,7 +634,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
    * Initialize our runtime environment -- e.g. PMI.
    */
   ret = runtime_init(myNodeID, numNodes);
-  CmiPrintf("[%d] nodeid %d, numnodes %d\n", *myNodeID, *myNodeID, *numNodes);
+  //  CmiPrintf("[%d] nodeid %d, numnodes %d\n", *myNodeID, *myNodeID, *numNodes);
   if (ret) {
     CmiAbort("OFI::LrtsInit::runtime_init failed");
   }
@@ -784,19 +784,20 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
     CmiAbort("OFI::LrtsInit::No provider found");
   }
 
-#if 1
-  // useful for debugging new OFI
+#if CMK_OFI_CXI
+
   for(fi_info *aprov = providers; aprov!=NULL; aprov=aprov->next)
     {
       // if we're running multiple processes per node, we should
       // choose the CXI interface closest to our placement.  This is
       // a little awkward as we're at an information low moment
       // early in the bootstrapping process.
-      OFI_INFO("aprovider: %s domain %s\n", aprov->fabric_attr->prov_name, aprov->domain_attr->name);
+      //OFI_INFO("aprovider: %s domain %s\n", aprov->fabric_attr->prov_name, aprov->domain_attr->name);
       if(strncmp(aprov->domain_attr->name,myDomainName,4)==0)
 	{
-	  OFI_INFO("Process [%d] will use domain %s\n", *myNodeID, myDomainName);
 	  prov = aprov;
+	  if(*myNodeID<=numPesOnNode)
+	    CmiPrintf("Process [%d] will use domain %s\n", *myNodeID, myDomainName);
 	}
     }
 #endif
