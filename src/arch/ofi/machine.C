@@ -519,6 +519,101 @@ void my_free_huge_pages(void *ptr, int size)
 #include "machine-onesided.h"
 #endif
 
+
+/* transformed from cpuaffinity.C due to our need to parse the same
+ sort of arg string, but having to do so before CmiNumPesGlobal (and
+ similar quantities) have been defined
+*/
+static int search_map(char *mapstring, int pe)
+{
+  int NumPesGlobal;
+  PMI_Get_universe_size(&NumPesGlobal);
+  int *map = (int *)malloc(NumPesGlobal*sizeof(int));
+  char *ptr = NULL;
+  int h, i, j, k, count;
+  int plusarr[128];
+  char *str;
+
+  char *mapstr = (char*)malloc(strlen(mapstring)+1);
+  strcpy(mapstr, mapstring);
+
+  str = strtok_r(mapstr, ",", &ptr);
+  count = 0;
+  while (str && count < NumPesGlobal)
+  {
+      int hasdash=0, hascolon=0, hasdot=0, hasstar1=0, hasstar2=0, numplus=0;
+      int start, end, stride=1, block=1;
+      int iter=1;
+      plusarr[0] = 0;
+      for (i=0; i<strlen(str); i++) {
+          if (str[i] == '-' && i!=0) hasdash=1;
+          else if (str[i] == ':') hascolon=1;
+	  else if (str[i] == '.') hasdot=1;
+	  else if (str[i] == 'x') hasstar1=1;
+	  else if (str[i] == 'X') hasstar2=1;
+	  else if (str[i] == '+') {
+            if (str[i+1] == '+' || str[i+1] == '-') {
+              printf("Warning: Check the format of \"%s\".\n", str);
+            } else if (sscanf(&str[i], "+%d", &plusarr[++numplus]) != 1) {
+              printf("Warning: Check the format of \"%s\".\n", str);
+              --numplus;
+            }
+          }
+      }
+      if (hasstar1 || hasstar2) {
+          if (hasstar1) sscanf(str, "%dx", &iter);
+          if (hasstar2) sscanf(str, "%dX", &iter);
+          while (*str!='x' && *str!='X') str++;
+          str++;
+      }
+      if (hasdash) {
+          if (hascolon) {
+            if (hasdot) {
+              if (sscanf(str, "%d-%d:%d.%d", &start, &end, &stride, &block) != 4)
+                 printf("Warning: Check the format of \"%s\".\n", str);
+            }
+            else {
+              if (sscanf(str, "%d-%d:%d", &start, &end, &stride) != 3)
+                 printf("Warning: Check the format of \"%s\".\n", str);
+            }
+          }
+          else {
+            if (sscanf(str, "%d-%d", &start, &end) != 2)
+                 printf("Warning: Check the format of \"%s\".\n", str);
+          }
+      }
+      else {
+          sscanf(str, "%d", &start);
+          end = start;
+      }
+      if (block > stride) {
+        printf("Warning: invalid block size in \"%s\" ignored.\n", str);
+        block=1;
+      }
+      //if (CmiMyPe() == 0) printf("iter: %d start: %d end: %d stride: %d, block: %d. plus %d \n", iter, start, end, stride, block, numplus);
+      for (k = 0; k<iter; k++) {
+        for (i = start; i<=end; i+=stride) {
+          for (j=0; j<block; j++) {
+            if (i+j>end) break;
+            for (h=0; h<=numplus; h++) {
+              map[count++] = i+j+plusarr[h];
+              if (count == NumPesGlobal) break;
+            }
+            if (count == NumPesGlobal) break;
+          }
+          if (count == NumPesGlobal) break;
+        }
+        if (count == NumPesGlobal) break;
+      }
+      str = strtok_r(NULL, ",", &ptr);
+  }
+  i = map[pe % count];
+
+  free(map);
+  free(mapstr);
+  return i;
+}
+
 /* ### Beginning of Machine-startup Related Functions ### */
 void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
 {
@@ -597,47 +692,73 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
 
 	* 2. HWLOC doesn't have a hwloc_get_closest_nic because... NIC
 	* doesn't even rate an object type in their ontology, let
-	* alone get first class treatment.  But it is the portable
-	* hardware interrogation API we have to hand.  So, instead we
-	* get our NUMAnode, and then get the PCI objects inside
-	* it. Then get the Ethernet that is also an HSN within that.
+	* alone get first class treatment.  Given that PCI devices
+	* don't have a cpuset, there are a bunch of HWLOC features
+	* that don't work for them.  But it is the portable hardware
+	* interrogation API we have to hand.  So, instead we get our
+	* NUMAnode, and then get the PCI objects inside it. Get the
+	* (Ethernet)->Net(Slingshot) object and take the name from it,
+	* (e.g., hsn2). Get the last digit and append it to "cxi".
+	* There may be a better way to do this, but it isn't apparent
+	* to me based on their documentation.
 
-	* 3. Likewise the 1:1 relationship we assume here between
+	* 2a. How one actually extracts that information from HWLOC is
+	* difficult to unravel.  As it somehow accessible to their
+	* lstopo utility, but from within their C API the PCI devices
+	* do *not* have such convenient labeling as something special
+	* needs to happen to get their linuxfs utilities to inject
+	* that derived information into your topology object.  As an
+	* interim solution we allow the user to map their cxi[0..3]
+	* selection using command line arguments.
+
+	* 2b. Likewise the 1:1 relationship we assume here between
 	* cxi[0..3] and hsn[0..3] is informed speculation backed up by
 	* no documentation.  Because, why have cxi0..3 at all if they
 	* don't correlate with the underlying hsn0..3?  We assume the
 	* designers aren't insane or malicious, just stuck on the other
 	* side of an NDA.
 
-	* 4. LrtsInit is of necessity fairly early in the startup
+	* 2c. Testing different orderings doesn't indicate that the
+	* choice of cxi[0..3] has a statistically significant impact
+	* on application (i.e., NAMD) performance.  So, whatever
+	* correlation may exist with HSN may be swamped by other
+	* effects.
+
+	* 3. LrtsInit is of necessity fairly early in the startup
 	* process, so a lot of the infrastructure we might otherwise rely
 	* upon hasn't been set up yet.  But, we do have the hwloc
 	* topology and cray-pmi.
+
+
 	*/
-       /*
-       int myRank;
-  PMI_Get_rank(&myRank);
-  cmi_hwloc_obj_t myNUMA = cmi_hwloc_get_numanode_obj_by_os_index(topology, myRank);
-  if(myNUMA!=NULL){
-    int myPCIdepth=cmi_hwloc_get_depth(topology, HWLOC_OBJ_PCI_DEVICE);
-    for(auto pciobj=
-	        cmi_hwloc_get_obj_below_by_type(topology,
-						myNUMA,
-						HWLOC_OBJ_PCI_DEVICE,
 
-    cmi_hwloc_obj_t myPCIs=
-				      NULL,
-				      "hsn",
-				      unsigned long flags);
-
-  }
-         */
-#endif
-
-  int myNet= 0;
+  char *cximap;
+  CmiGetArgStringDesc(*argv, "+cximap", &cximap, "define cxi interface to process mapping");
+  short myNet;
+  int numPesOnNode;
+  PMI_Get_numpes_in_app_on_smp(&numPesOnNode);
+  int myRank=*myNodeID%numPesOnNode;
+  if(cximap != NULL)
+    {
+      myNet=search_map(cximap,myRank);
+      //      CmiPrintf("map sets process %d to rank %d to cxi%d\n",*myNodeID, myRank, myNet);
+    }
+  else
+    {
+      int quad=numPesOnNode/4;
+      // determine where we fall in the ordering
+      // Default is OS id order
+      /* 0-15  -> HSN-2
+       * 16-31 -> HSN-1
+       * 32-47 -> HSN-3
+       * 48-63 -> HSN-0
+       */
+      short hsnOrder[4]={2,1,3,0};
+      myNet=hsnOrder[myRank/quad];
+    }
   char myDomainName[5];
   snprintf(myDomainName,5, "cxi%d", myNet);
-
+#endif
   /**
    * FI_VERSION provides binary backward and forward compatibility support
    * Specify the version of OFI this machine is coded to, the provider will
@@ -673,23 +794,10 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
       // early in the bootstrapping process.
       OFI_INFO("aprovider: %s domain %s\n", aprov->fabric_attr->prov_name, aprov->domain_attr->name);
       if(strncmp(aprov->domain_attr->name,myDomainName,4)==0)
-	//	CmiPrintf("[%d] would use domain %s\n", *myNodeID, myDomainName);
-	//	if(strncmp(aprov->domain_attr->name,"cxi0",4)==0)
 	{
+	  OFI_INFO("Process [%d] will use domain %s\n", *myNodeID, myDomainName);
 	  prov = aprov;
-	  /**
-	   * Here we elect to use the cxi0 provider from the list.
-	   */
 	}
-      /*	else
-		{
-		if(strncmp(aprov->domain_attr->name,"cxi1",4)==0)
-		{
-		prov = aprov;
-		// cxi1?
-		}
-		}
-      */
     }
 #endif
   OFI_INFO("[%d]provider: %s\n", *myNodeID, prov->fabric_attr->prov_name);
