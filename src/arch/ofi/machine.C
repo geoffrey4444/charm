@@ -267,7 +267,7 @@ CpvDeclare(mempool_type*, mempool);
 
 #define OFI_OP_MASK  0x7ULL
 
-#define MR_ACCESS_PERMISSIONS (FI_REMOTE_READ | FI_READ | FI_RECV | FI_SEND)
+#define MR_ACCESS_PERMISSIONS (FI_REMOTE_READ | FI_READ | FI_RECV | FI_SEND | FI_REMOTE_WRITE | FI_WRITE)
 
 static inline int process_completion_queue();
 
@@ -732,7 +732,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
 
 	*/
 
-  char *cximap;
+  char *cximap=NULL;
   CmiGetArgStringDesc(*argv, "+cximap", &cximap, "define cxi interface to process mapping");
   short myNet;
   int numPesOnNode;
@@ -745,7 +745,8 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
     }
   else
     {
-      int quad=numPesOnNode/4;
+      int div= (numPesOnNode>=4) ? 4 : numPesOnNode;
+      int quad=numPesOnNode/div;
       // determine where we fall in the ordering
       // Default is OS id order
       /* 0-15  -> HSN-2
@@ -753,7 +754,14 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
        * 32-47 -> HSN-3
        * 48-63 -> HSN-0
        */
+
+
       short hsnOrder[4]={2,1,3,0};
+      if(myRank/quad>4)
+	{
+	  CmiPrintf("Error: myrank %d quad %d myrank/quad %n",myRank,quad, myRank/quad);
+	  CmiAbort("cxi mapping failure");
+	}
       myNet=hsnOrder[myRank/quad];
     }
   char myDomainName[5];
@@ -1010,19 +1018,25 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
   /**
    * Exchange EP names and insert them into the AV.
    */
-  if (CmiGetArgFlag(*argv, "+ofi_runtime_tcp")) {
-    OFI_INFO("exchanging addresses over TCP\n");
-    ret = fill_av(*myNodeID, *numNodes, context.ep,
-		  context.av, context.cq);
-    if (ret < 0) {
-      CmiAbort("OFI::LrtsInit::fill_av");
-    }
-  } else {
+  //this is now the default because it is stable, but allow the
+  //argument for backward compatibility
+  CmiGetArgFlag(*argv, "+ofi_runtime_tcp");
+
+  if (CmiGetArgFlag(*argv, "+ofi_runtime_ofi")) {
     OFI_INFO("exchanging addresses over OFI\n");
     ret = fill_av_ofi(*myNodeID, *numNodes, context.ep,
 		      context.av, context.cq);
     if (ret < 0) {
       CmiAbort("OFI::LrtsInit::fill_av_ofi");
+    }
+  }
+  else //
+    {
+    OFI_INFO("exchanging addresses over TCP\n");
+    ret = fill_av(*myNodeID, *numNodes, context.ep,
+		  context.av, context.cq);
+    if (ret < 0) {
+      CmiAbort("OFI::LrtsInit::fill_av");
     }
   }
 
@@ -1045,7 +1059,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
 static inline
 void prepost_buffers()
 {
-    OFIRequest **reqs;
+    OFIRequest **reqs=NULL;
 #if CMK_OFI_CXI
     // CmiAlloc will go through LrtsAlloc, which will use a memory
     // pool, which should do all the right things wrt register, bind,
@@ -1090,7 +1104,7 @@ void send_short_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
      * A short message was sent.
      * Free up resources.
      */
-    char *msg;
+    char *msg=NULL;
 
     MACHSTATE(3, "OFI::send_short_callback {");
 
@@ -1117,7 +1131,7 @@ void send_rma_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
      * An OFIRmaHeader was sent.
      * Free up resources.
      */
-    OFIRmaHeader *header;
+    OFIRmaHeader *header=NULL;
 
     MACHSTATE(3, "OFI::send_rma_callback {");
 
@@ -1182,7 +1196,7 @@ static inline int sendMsg(OFIRequest *req)
 {
     int       ret;
     uint64_t  op;
-    char     *buf;
+    char     *buf=NULL;
     size_t    len;
 
     MACHSTATE5(2,
@@ -1260,7 +1274,7 @@ CmiCommHandle LrtsSendFunc(int destNode, int destPE, int size, char *msg, int mo
 {
 
     int           ret;
-    OFIRequest    *req;
+    OFIRequest    *req=NULL;
 #if CMK_SMP_TRACE_COMMTHREAD
     double startT, endT;
 #endif
@@ -1270,7 +1284,6 @@ CmiCommHandle LrtsSendFunc(int destNode, int destPE, int size, char *msg, int mo
 #if CMK_SMP_TRACE_COMMTHREAD
     startT = CmiWallTimer();
 #endif
-
     CmiSetMsgSize(msg, size);
 
 #if USE_OFIREQUEST_CACHE
@@ -1299,7 +1312,7 @@ CmiCommHandle LrtsSendFunc(int destNode, int destPE, int size, char *msg, int mo
        * Let other side use RMA Read instead by sending an OFIRmaHeader.
        */
       OFIRmaHeader  *rma_header;
-      struct fid_mr *mr;
+      struct fid_mr *mr=NULL;
 #if CMK_OFI_CXI
       uint32_t      requested_key = 0;
       block_header *base_addr;
@@ -1375,7 +1388,7 @@ void send_ack_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
      * An OFIRmaAck was sent (see rma_read_callback()).
      * We are done with the RMA Read operation. Free up the resources.
      */
-    OFILongMsg *long_msg;
+    OFILongMsg *long_msg=NULL;
 #if CMK_SMP_TRACE_COMMTHREAD
     double startT, endT;
     startT = CmiWallTimer();
@@ -1406,7 +1419,7 @@ void rma_read_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
     /**
      * An RMA Read operation completed.
      */
-    OFILongMsg *long_msg;
+    OFILongMsg *long_msg=NULL;
 #if CMK_SMP_TRACE_COMMTHREAD
     double startT, endT;
     startT = CmiWallTimer();
@@ -1476,7 +1489,7 @@ void process_short_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
      *   - Allocate new recv buffer.
      */
 
-    char    *data;
+    char    *data=NULL;
     size_t  msg_size;
 #if CMK_SMP_TRACE_COMMTHREAD
     double startT, endT;
@@ -1510,18 +1523,18 @@ void process_long_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
      */
 
     int ret;
-    OFILongMsg *long_msg;
-    OFIRequest *rma_req;
-    OFIRmaHeader *rma_header;
+    OFILongMsg *long_msg=NULL;
+    OFIRequest *rma_req=NULL;
+    OFIRmaHeader *rma_header=NULL;
     struct fid_mr *mr = NULL;
-    char *asm_buf;
+    char *asm_buf=NULL;
     int nodeNo;
     uint64_t rbuf;
     size_t len;
     uint64_t rkey;
     uint64_t rmsg;
     uint64_t rmr;
-    char *lbuf;
+    char *lbuf=NULL;
     size_t remaining;
     size_t chunk_size;
 #if CMK_SMP_TRACE_COMMTHREAD
@@ -1646,8 +1659,8 @@ void process_long_send_ack(struct fi_cq_tagged_entry *e, OFIRequest *req)
      * An OFIRmaAck was received; Close memory region and free original msg.
      */
 
-    struct fid *mr;
-    char *msg;
+    struct fid *mr=NULL;
+    char *msg=NULL;
 #if CMK_SMP_TRACE_COMMTHREAD
     double startT, endT;
     startT = CmiWallTimer();
@@ -1731,7 +1744,7 @@ int process_completion_queue()
     int ret;
     struct fi_cq_tagged_entry entries[context.cq_entries_count];
     struct fi_cq_err_entry error;
-    OFIRequest *req;
+    OFIRequest *req=NULL;
 #if CMK_SMP_TRACE_COMMTHREAD
     double startT, endT;
     startT = CmiWallTimer();
@@ -1805,7 +1818,7 @@ int process_completion_queue()
 static inline
 int process_send_queue()
 {
-    OFIRequest *req;
+    OFIRequest *req=NULL;
     int ret = 0;
 #if CMK_SMP_TRACE_COMMTHREAD
     double startT, endT;
@@ -2070,7 +2083,7 @@ void LrtsExit(int exitcode)
 {
     int        ret;
     int        i;
-    OFIRequest *req;
+    OFIRequest *req=NULL;
 
     MACHSTATE(2, "OFI::LrtsExit {");
 

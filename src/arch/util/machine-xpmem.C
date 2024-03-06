@@ -74,7 +74,7 @@ There are three options here for synchronization:
 #define CmiMemoryReadFence(startPtr,nBytes) 
 #endif
 
-#if CMK_SMP && !CMK_OFI_CXI
+#if CMK_SMP
 #error  "XPMEM can only be used in non-smp build of Charm++"
 #endif
 

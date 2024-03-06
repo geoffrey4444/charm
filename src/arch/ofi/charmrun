@@ -195,8 +195,19 @@ then
     then
 	NET_ARGS="--network=single_node_vni"
     else
-	NET_ARGS=""
+	if [[ $pes -eq 1 ]]
+	then
+	    NET_ARGS="--network=single_node_vni"
+	else
+	    if [[ $nodes -eq 1 ]]
+	    then
+		NET_ARGS="--network=single_node_vni"
+	    else
+		NET_ARGS=""
+	    fi
+	fi
     fi
+
     if [[ $? -eq 0 ]]
     then
 	runCmd srun --mpi=cray_shasta $NET_ARGS -n "$nodes" "${args[@]}"
