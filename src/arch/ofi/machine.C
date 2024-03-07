@@ -753,10 +753,12 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
        * 16-31 -> HSN-1
        * 32-47 -> HSN-3
        * 48-63 -> HSN-0
+       but experimentally, the best order seems to be 1302
        */
 
 
-      short hsnOrder[4]={2,1,3,0};
+      ///      short hsnOrder[4]={2,1,3,0};
+      short hsnOrder[4]={1,3,0,2};
       if(myRank/quad>4)
 	{
 	  CmiPrintf("Error: myrank %d quad %d myrank/quad %n",myRank,quad, myRank/quad);
