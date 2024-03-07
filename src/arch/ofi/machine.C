@@ -1188,6 +1188,48 @@ void ofi_send(void *buf, size_t buf_size, int addr, uint64_t tag, OFIRequest *re
     }
 }
 
+static inline
+void ofi_register_and_send(void *buf, size_t buf_size, int addr, uint64_t tag, OFIRequest *req)
+{
+    if (context.use_inject && buf_size <= context.inject_maxsize)
+    {
+        /**
+         * The message is small enough to be injected.
+         * This won't generate any completion, so we can free the msg now.
+         */
+        MACHSTATE(3, "----> inject");
+
+        OFI_RETRY(fi_tinject(context.ep,
+                             buf,
+                             buf_size,
+                             addr,
+                             tag));
+        req->callback(NULL, req);
+    }
+    else
+      {
+#if CMK_OFI_CXI
+
+	struct fid_mr* mr;
+	ofi_reg_bind_enable(buf, buf_size, &mr,&context);
+#endif
+
+	MACHSTATE3(3, "msg send mr %p: mr key %lu buf %p\n", mr, fi_mr_key(mr), buf);
+        /* Else, use regular send. */
+        OFI_RETRY(fi_tsend(context.ep,
+                           buf,
+                           buf_size,
+#if CMK_OFI_CXI
+			   fi_mr_desc(mr),
+#else
+			   NULL,
+#endif
+			   addr,
+                           tag,
+                           &req->context));
+    }
+}
+
 /**
  * sendMsg is used to send a message.
  * In CMK_SMP mode, this is called by the comm thread.
