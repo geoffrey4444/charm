@@ -686,7 +686,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
 	* ordering of different types of hardware correlate with
 	* proximity at all.  E.g., on frontier core 0 is in NUMA 0 which
 	* means it is closest to GPU 4 and HSN (NIC) 2, but is a direct
-	* peer of cores 1-15.  So, proximal ordering outside of type
+	* peer of cores 0-15.  So, proximal ordering outside of type
 	* should not be considered predictive of proximity.  That
 	* relationship has to be detected by other means.
 
@@ -718,56 +718,27 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
 	* designers aren't insane or malicious, just stuck on the other
 	* side of an NDA.
 
-	* 2c. Testing different orderings doesn't indicate that the
-	* choice of cxi[0..3] has a statistically significant impact
-	* on application (i.e., NAMD) performance.  So, whatever
-	* correlation may exist with HSN may be swamped by other
-	* effects.
-
 	* 3. LrtsInit is of necessity fairly early in the startup
 	* process, so a lot of the infrastructure we might otherwise rely
 	* upon hasn't been set up yet.  But, we do have the hwloc
 	* topology and cray-pmi.
 
+	* 4. We might not (depending on what does the binding) have
+	* bound this process yet, so exactly where we are and how
+	* close that is to any particular NIC is sort of fluid.
 
+	* 5. How many CXI domain interfaces exist?  You can't tell on
+	* the head node, the answer could easily be zero there.  You
+	* also can't be sure that whatever was true at compile time
+	* will be true at run time.  Crusher and Frontier have four.
+	* Delta has one.  Perlmutter has four on GPU nodes and one on
+	* CPU nodes.  The user could easily be confused, so we can't
+	* rely on them telling us.  This has to be determined at
+	* run time.
 	*/
 
   char *cximap=NULL;
   CmiGetArgStringDesc(*argv, "+cximap", &cximap, "define cxi interface to process mapping");
-  short myNet;
-  int numPesOnNode;
-  PMI_Get_numpes_in_app_on_smp(&numPesOnNode);
-  int myRank=*myNodeID%numPesOnNode;
-  if(cximap != NULL)
-    {
-      myNet=search_map(cximap,myRank);
-      //      CmiPrintf("map sets process %d to rank %d to cxi%d\n",*myNodeID, myRank, myNet);
-    }
-  else
-    {
-      int div= (numPesOnNode>=4) ? 4 : numPesOnNode;
-      int quad=numPesOnNode/div;
-      // determine where we fall in the ordering
-      // Default is OS id order
-      /* 0-15  -> HSN-2
-       * 16-31 -> HSN-1
-       * 32-47 -> HSN-3
-       * 48-63 -> HSN-0
-       but experimentally, the best order seems to be 1302
-       */
-
-
-      ///      short hsnOrder[4]={2,1,3,0};
-      short hsnOrder[4]={1,3,0,2};
-      if(myRank/quad>4)
-	{
-	  CmiPrintf("Error: myrank %d quad %d myrank/quad %n",myRank,quad, myRank/quad);
-	  CmiAbort("cxi mapping failure");
-	}
-      myNet=hsnOrder[myRank/quad];
-    }
-  char myDomainName[5];
-  snprintf(myDomainName,5, "cxi%d", myNet);
 #endif
   /**
    * FI_VERSION provides binary backward and forward compatibility support
@@ -794,8 +765,66 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
     CmiAbort("OFI::LrtsInit::No provider found");
   }
 
-#if CMK_OFI_CXI
 
+  
+#if CMK_OFI_CXI
+  char myDomainName[5]="cxi0";
+  short numcxi=0;
+  for(fi_info *aprov = providers; aprov!=NULL; aprov=aprov->next)
+    { // count up the CXI interfaces
+      if(strncmp(aprov->domain_attr->name,myDomainName,3)==0)
+	numcxi++;
+    }
+  
+  short myNet;
+  int numPesOnNode;
+#define HAS_PMI_Get_numpes_in_app_on_smp 1
+#if HAS_PMI_Get_numpes_in_app_on_smp
+  PMI_Get_numpes_in_app_on_smp(&numPesOnNode);
+#else
+  // how do we learn how many processes there are on this node?
+#endif  
+  int myRank=*myNodeID%numPesOnNode;
+  if(cximap != NULL)
+    {
+      myNet=search_map(cximap,myRank);
+      //      CmiPrintf("map sets process %d to rank %d to cxi%d\n",*myNodeID, myRank, myNet);
+    }
+  else
+    {
+      int div= (numPesOnNode>=numcxi) ? numcxi : numPesOnNode;
+      int quad=numPesOnNode/div;
+      // determine where we fall in the ordering
+      // Default is OS id order
+      /* 0-15  -> HSN-2
+       * 16-31 -> HSN-1
+       * 32-47 -> HSN-3
+       * 48-63 -> HSN-0
+       but experimentally, the best order seems to be 1302
+       */
+
+
+      ///      short hsnOrder[numcxi]={2,1,3,0};
+      if(numcxi==4)
+	{
+	  short hsnOrder[numcxi]={1,3,0,2};
+	  if(myRank/quad>numcxi)
+	    {
+	      CmiPrintf("Error: myrank %d quad %d myrank/quad %n",myRank,quad, myRank/quad);
+	      CmiAbort("cxi mapping failure");
+	    }
+	  myNet=hsnOrder[myRank/quad];
+	}
+      else
+	{
+	  CmiAssert(numcxi==1);
+	  //theoretically there are cases other than 4 and 1, but
+	  //until someone sights such a crayptid on a machine floor,
+	  //we're just going to assume they don't exist.
+	  myNet=0;
+	}
+    }
+  snprintf(myDomainName,5, "cxi%d", myNet);  
   for(fi_info *aprov = providers; aprov!=NULL; aprov=aprov->next)
     {
       // if we're running multiple processes per node, we should

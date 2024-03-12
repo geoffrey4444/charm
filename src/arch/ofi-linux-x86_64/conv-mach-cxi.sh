@@ -1,28 +1,26 @@
-
-# For libfabric
-#If the user doesn't pass --basedir, use defaults for libfabric headers and library
 if test -z "$USER_OPTS_LD"
 then
-    if test -z "$LIBFABRIC"
-    then
-	CMK_INCDIR="$CMK_INCDIR -I/usr/include/"
-	CMK_LIBDIR="$CMK_LIBDIR -L/usr/lib64/"
-    else
-	CMK_INCDIR="$CMK_INCDIR -I$LIBFABRIC/include/"
-	CMK_LIBDIR="$CMK_LIBDIR -L$LIBFABRIC/lib64/"
-    fi
+    CMK_LIBFABRIC_INC=`pkg-config --cflags libfabric`
+    CMK_LIBFABRIC_LIBS=`pkg-config --libs libfabric`
+    CMK_LIBPALS_LIBS=`pkg-config --libs libpals`
+    CMK_LIBPALS_LDPATH=`pkg-config libpals --variable=libdir`
 fi
 
-# For cray-pmi
-if test -n "$CRAY_PMI_PREFIX"
-then
-    CMK_INCDIR="$CMK_INCDIR -I$CRAY_PMI_PREFIX/include"
-    CMK_LIBDIR="$CMK_LIBDIR -L$CRAY_PMI_PREFIX/lib"
-fi
+# For libfabric
+#If the user doesn't pass --basedir, use pkg-config for libfabric headers and library
 
-CMK_LIBS="$CMK_LIBS -lfabric"
-# Use PMI2 by default on Cray systems with cray-pmi
-. $CHARMINC/conv-mach-slurmpmi2.sh
+#to avoid some linker wackiness, we order them PMI libs, pal libs,
+#lib64.  So that if someplace (i.e., NCSA) puts regular pmi libs in
+#/usr/lib64, we get them from the package's cray-pmi dir not their
+#unextended pmi.  libpals comes along for the ride here due to a
+#dependency in pmi.  fabric can just go after the others.
+
+CMK_PMI_INC=`pkg-config --cflags cray-pmi`
+CMK_PMI_LIBS=`pkg-config --libs cray-pmi`
+CMK_LIBPMI_LDPATH=`pkg-config cray-pmi --variable=libdir`
+
+CMK_INCDIR="$CMK_PMI_INC -I/usr/include/slurm/ $CMK_LIBFABRIC_INC $CMK_INCDIR "
+CMK_LIBS="-Wl,-rpath,$CMK_LIBPALS_LDPATH,-rpath,$CMK_LIBPMI_LDPATH $CMK_LIBPALS_LIBS $CMK_PMI_LIBS -L/usr/lib64/ $CMK_LIBFABRIC_LIBS $CMK_LIBS "  
 
 # For runtime
 CMK_INCDIR="$CMK_INCDIR -I./proc_management/"
