@@ -769,11 +769,15 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
   
 #if CMK_OFI_CXI
   char myDomainName[5]="cxi0";
+  char priorDomain[5]="null";
   short numcxi=0;
   for(fi_info *aprov = providers; aprov!=NULL; aprov=aprov->next)
     { // count up the CXI interfaces
-      if(strncmp(aprov->domain_attr->name,myDomainName,3)==0)
+      if(strncmp(aprov->domain_attr->name,myDomainName,3)==0 && strncmp(aprov->domain_attr->name,priorDomain,4)!=0)
+      {
 	numcxi++;
+	strncpy(priorDomain,aprov->domain_attr->name,4);
+      }
     }
   
   short myNet;
@@ -795,7 +799,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
       int div= (numPesOnNode>=numcxi) ? numcxi : numPesOnNode;
       int quad=numPesOnNode/div;
       // determine where we fall in the ordering
-      // Default is OS id order
+      // Default OS id order on frontier
       /* 0-15  -> HSN-2
        * 16-31 -> HSN-1
        * 32-47 -> HSN-3
@@ -824,7 +828,8 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
 	  myNet=0;
 	}
     }
-  snprintf(myDomainName,5, "cxi%d", myNet);  
+  snprintf(myDomainName,5, "cxi%d", myNet);
+
   for(fi_info *aprov = providers; aprov!=NULL; aprov=aprov->next)
     {
       // if we're running multiple processes per node, we should
