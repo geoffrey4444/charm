@@ -25,7 +25,7 @@ fi
 
 CMK_LIBS="$CMK_LIBS -lfabric"
 # Use PMI2 by default on Cray systems with cray-pmi
-. $CHARMINC/conv-mach-slurmpmi2.sh
+. $CHARMINC/conv-mach-slurmpmi2cray.sh
 
 # For runtime
 CMK_INCDIR="$CMK_INCDIR -I./proc_management/"
