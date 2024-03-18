@@ -179,8 +179,8 @@ CpvStaticDeclare(double, projTraceStart);
 #elif CMK_USE_PMIX
 #include "runtime-pmix.C"
 #endif
-
-#if CMK_OFI
+#define CMK_CXI 1
+#if CMK_CXI
   /** use mempools in CXI to aggregate FI_MR_ENDPOINT registration reqs into big blocks */
 #define oneMB (1024ll*1024)
 #define oneGB (1024ll*1024*1024)
@@ -427,13 +427,13 @@ typedef struct OFIContext {
      *  - FI_MR_BASIC requires us to register the RMA buffers and to exchange the keys.
      *  - FI_MR_ENDPOINT requires us to register and bind and enable our MRs, but we can use our own 32 bit keys locally.
      */
-#if CMK_OFI
+#if CMK_CXI
     uint32_t mr_mode;
 #else
     enum fi_mr_mode mr_mode;
 #endif
 
-#if CMK_OFI
+#if CMK_CXI
   /** Used as unique key value in FI_MR_ENDPOINT mode */
   // only 32 bits available to us
   uint32_t mr_counter;
@@ -460,7 +460,7 @@ static int fill_av(int myid, int nnodes, struct fid_ep *ep,
                    struct fid_av *av, struct fid_cq *cq);
 static int fill_av_ofi(int myid, int nnodes, struct fid_ep *ep,
                        struct fid_av *av, struct fid_cq *cq);
-#if CMK_OFI
+#if CMK_CXI
 static int ofi_reg_bind_enable(const void *buf,
 			       size_t len, struct fid_mr **mr, OFIContext *context);
 #endif
@@ -659,12 +659,12 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
   CmiAssert(NULL != hints);
   hints->mode = ~0;
   hints->domain_attr->mode = ~0;
-#if CMK_OFI
+#if CMK_CXI
   hints->domain_attr->mr_mode          = FI_MR_ENDPOINT;
 #endif
   hints->mode                          = FI_CONTEXT;
   hints->ep_attr->type                 = FI_EP_RDM;
-#if CMK_OFI
+#if CMK_CXI
   hints->ep_attr->protocol             = FI_PROTO_CXI;
   hints->domain_attr->threading = FI_THREAD_SAFE;
   //hints->domain_attr->threading = FI_THREAD_DOMAIN;
@@ -677,7 +677,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
   hints->caps                          = FI_TAGGED;
   hints->caps                         |= FI_RMA;
   hints->caps                         |= FI_REMOTE_READ;
-#if CMK_OFI
+#if CMK_CXI
   // Figure out which NIC we should request based on the one that
   // should be closest.  
        /* This is overly complicated for several reasons:
@@ -748,7 +748,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
   //    fi_version = FI_VERSION(1, 15);
   // CXI versions itself differently from OFI
 
-#if CMK_OFI
+#if CMK_CXI
   /* CXI has its own versioning, so just use whatever the build env
      is until we come up with some CXI version specific changes */
   fi_version = FI_VERSION(FI_MAJOR_VERSION, FI_MINOR_VERSION);
@@ -767,7 +767,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
 
 
   
-#if CMK_OFI
+#if CMK_CXI
   char myDomainName[5]="cxi0";
   char priorDomain[5]="null";
   short numcxi=0;
@@ -878,7 +878,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
   OFI_INFO("use inject: %d\n", context.use_inject);
 
   context.rma_maxsize = prov->ep_attr->max_msg_size;
-#if CMK_OFI
+#if CMK_CXI
   context.mr_mode = prov->domain_attr->mr_mode;
   OFI_INFO("requested mr mode: 0x%x\n", FI_MR_ENDPOINT);
   OFI_INFO("requested mr mode & mr_mode: 0x%x\n", (FI_MR_ENDPOINT) & context.mr_mode);
@@ -894,7 +894,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
   OFI_INFO("mr virtual address support : 0x%x\n", context.mr_mode & FI_MR_VIRT_ADDR);
 
 
-#if CMK_OFI
+#if CMK_CXI
   if ((context.mr_mode & FI_MR_ENDPOINT)==0)
     CmiAbort("OFI::LrtsInit::Unsupported MR mode FI_MR_ENDPOINT");
 #else
@@ -1096,7 +1096,7 @@ static inline
 void prepost_buffers()
 {
     OFIRequest **reqs=NULL;
-#if CMK_OFI
+#if CMK_CXI
     // CmiAlloc will go through LrtsAlloc, which will use a memory
     // pool, which should do all the right things wrt register, bind,
     // enable behind the scenes
@@ -1203,7 +1203,7 @@ void ofi_send(void *buf, size_t buf_size, int addr, uint64_t tag, OFIRequest *re
     }
     else
       {
-#if CMK_OFI
+#if CMK_CXI
 
 	struct fid_mr* mr = (struct fid_mr *) GetMemHndl(buf);
 #endif
@@ -1213,7 +1213,7 @@ void ofi_send(void *buf, size_t buf_size, int addr, uint64_t tag, OFIRequest *re
         OFI_RETRY(fi_tsend(context.ep,
                            buf,
                            buf_size,
-#if CMK_OFI
+#if CMK_CXI
 			   fi_mr_desc(mr),
 #else
 			   NULL,
@@ -1244,7 +1244,7 @@ void ofi_register_and_send(void *buf, size_t buf_size, int addr, uint64_t tag, O
     }
     else
       {
-#if CMK_OFI
+#if CMK_CXI
 
 	struct fid_mr* mr;
 	ofi_reg_bind_enable(buf, buf_size, &mr,&context);
@@ -1255,7 +1255,7 @@ void ofi_register_and_send(void *buf, size_t buf_size, int addr, uint64_t tag, O
         OFI_RETRY(fi_tsend(context.ep,
                            buf,
                            buf_size,
-#if CMK_OFI
+#if CMK_CXI
 			   fi_mr_desc(mr),
 #else
 			   NULL,
@@ -1391,7 +1391,7 @@ CmiCommHandle LrtsSendFunc(int destNode, int destPE, int size, char *msg, int mo
        */
       OFIRmaHeader  *rma_header;
       struct fid_mr *mr=NULL;
-#if CMK_OFI
+#if CMK_CXI
       uint32_t      requested_key = 0;
       block_header *base_addr;
 #else
@@ -1416,7 +1416,7 @@ CmiCommHandle LrtsSendFunc(int destNode, int destPE, int size, char *msg, int mo
       else if (FI_MR_ENDPOINT & context.mr_mode)
 	{
 
-#if CMK_OFI
+#if CMK_CXI
 	  mr               = (struct fid_mr *) GetMemHndl(msg);
 	  size_t offset = GetMemOffsetFromBase(msg);
 	  MACHSTATE4(3, "msg send mr %p: mr key %lu buf %p offset %lu\n", mr, fi_mr_key(mr), msg, offset); 
@@ -1427,7 +1427,7 @@ CmiCommHandle LrtsSendFunc(int destNode, int destPE, int size, char *msg, int mo
       MACHSTATE(3, "--> long");
       ALIGNED_ALLOC(rma_header,sizeof(OFIRmaHeader));
       rma_header->nodeNo  = CmiMyNodeGlobal();
-#if CMK_OFI
+#if CMK_CXI
       rma_header->src_msg = GetMemOffsetFromBase(msg);
       rma_header->orig_msg = (uint64_t) msg;
 #else
@@ -1674,7 +1674,7 @@ void process_long_recv(struct fi_cq_tagged_entry *e, OFIRequest *req)
     long_msg->nodeNo           = nodeNo;
     long_msg->rma_ack.mr       = rmr;
     long_msg->completion_count = 0;
-#if CMK_OFI
+#if CMK_CXI
     // so the other side can free the right buffer in the offset case
     long_msg->rma_ack.src_msg  = rma_header->orig_msg;
     long_msg->mr = (struct fid_mr *) GetMemHndl(asm_buf);
@@ -2078,7 +2078,7 @@ void* LrtsAlloc(int n_bytes, int header)
 	    // the same macros and functions.  We need the mptr,
 	    // block_ptr, and mem_hndl fields and can test the size to
 	    // know to not put it back in the normal pool on free
-#if CMK_OFI
+#if CMK_CXI
 	    struct fid_mr *mr;
 	    ofi_reg_bind_enable(res, n_bytes, &mr,&context);
 	    mptr->block_head.mem_hndl=mr;
@@ -2096,7 +2096,7 @@ void* LrtsAlloc(int n_bytes, int header)
 	n_bytes = ALIGN64(n_bytes);           /* make sure size if 4 aligned */
 	char *res;
 	posix_memalign((void **)&res, ALIGNBUF, n_bytes+ALIGNBUF);
-#if CMK_OFI
+#if CMK_CXI
 	struct fid_mr *mr;
 	ofi_reg_bind_enable(res, n_bytes+ALIGNBUF, &mr,&context);
 	((block_header *)res)->mem_hndl = mr;
@@ -2130,7 +2130,7 @@ void LrtsFree(void *msg)
       int s = ALIGNHUGEPAGE(size+ALIGNBUF);
       my_free_huge_pages(msg, s);
 #else
-#if CMK_OFI
+#if CMK_CXI
       MACHSTATE1(3, "OFI::LrtsFree fi_close mr %p", (struct fid *)GetMemHndl( (char* )msg  +sizeof(CmiChunkHeader)));
       fi_close( (struct fid *)GetMemHndl( (char* )msg  +sizeof(CmiChunkHeader)));
       MACHSTATE2(3, "OFI::LrtsFree free msg next ptr %p vs ptr %p", GetBaseAllocPtr((char*)msg+sizeof(CmiChunkHeader)), (char *)msg-sizeof(out_of_pool_header));
@@ -2184,7 +2184,7 @@ void LrtsExit(int exitcode)
     PCQueueDestroy(context.send_queue);
 #endif
 
-#if CMK_OFI
+#if CMK_CXI
     if (context.recv_reqs)
       CmiFree(context.recv_reqs);
 #else    
