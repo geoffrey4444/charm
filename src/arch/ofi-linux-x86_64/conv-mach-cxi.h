@@ -4,7 +4,7 @@
 #define CMK_OFI                                            1
 /* for Slingshot-11 the provider is CXI, this is notably different
  in how memory registration is handled from the old OFI. */
-#define CMK_OFI_CXI                                        1
+#define CMK_CXI                                        1
 
 /* define the default linker, together with its options */
 #define CMK_DLL_CC   "g++ -shared -O3 -o "
@@ -86,6 +86,6 @@ extended header must contain also another field called "pn" (phase number).
 */
 
 /* Use PMI2 by default on Cray systems with cray-pmi */
-#include "conv-mach-slurmpmi2.h"
+#include "conv-mach-slurmpmi2cray.h"
 
 #endif

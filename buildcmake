@@ -92,7 +92,7 @@ function parse_triplet() {
 parse_triplet
 
 extra_triplet_opts=${extra_triplet_opts//-/ }
-opt_ofi_cxi=0
+opt_cxi=0
 opt_ampi_error_checking=0
 opt_ampi_mpich_tests=0
 opt_ampi_only=0
@@ -176,7 +176,7 @@ function parse_platform_compilers() {
       opt_cuda=1
       ;;
     cxi)
-      opt_ofi_cxi=1
+      opt_cxi=1
       ;;
     smp)
       opt_smp=1
@@ -495,7 +495,7 @@ fi
 
 # Append certain features and compilers to the end of $builddir
 builddir_extra=""
-for flag in opt_omp opt_smp opt_tcp opt_pthreads opt_pxshm opt_syncft opt_ooc opt_persistent opt_cuda; do
+for flag in opt_omp opt_smp opt_tcp opt_pthreads opt_pxshm opt_syncft opt_ooc opt_persistent opt_cuda opt_cxi; do
   [[ $flag -eq 1 ]] && builddir_extra+="-${flag/opt_/}"
 done
 
@@ -680,7 +680,7 @@ CC=$opt_CC CXX=$opt_CXX FC=$opt_FC cmake "$my_srcdir" \
   -DTCP="$opt_tcp" \
   -DTRACING="$opt_tracing" \
   -DTRACING_COMMTHREAD="$opt_tracing_commthread" \
-  -DCMK_OFI_CXI="$opt_ofi_cxi" \
+  -DCXI="$opt_cxi" \
   -DCMK_BUILD_OFI="$opt_build_ofi" \
   -DZLIB="$opt_zlib"
 

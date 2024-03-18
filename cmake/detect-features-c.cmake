@@ -382,7 +382,6 @@ include(CMakePrintHelpers)
 	set(myconfigCommand "pkg-config")
 	set(myargs1 "libfabric")
 	set(myargs2 "--libs")
-	cmake_print_variables(myconfigCommand myargs1 myargs2)	
 	execute_process(COMMAND ${myconfigCommand} ${myargs1} ${myargs2}
 	                OUTPUT_VARIABLE PKG_CONFIG_OFI_LIBS_OUTPUT
 			RESULT_VARIABLE PKG_CONFIG_OFI_LIBS_RESULT
@@ -404,6 +403,7 @@ include(CMakePrintHelpers)
   	message(WARNING "cmake can't find pkg-config")
   	set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES}")
   endif()
+
   check_c_source_compiles("
     #include <rdma/fabric.h>
     int main(int argc, char **argv)
