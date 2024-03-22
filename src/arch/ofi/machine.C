@@ -179,6 +179,8 @@ CpvStaticDeclare(double, projTraceStart);
 #elif CMK_USE_PMIX
 #include "runtime-pmix.C"
 #endif
+
+/* this should be set for us during the build, but cmake confounds again */
 #define CMK_CXI 1
 #if CMK_CXI
   /** use mempools in CXI to aggregate FI_MR_ENDPOINT registration reqs into big blocks */
@@ -796,8 +798,8 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
     }
   else
     {
-      int div= (numPesOnNode>=numcxi) ? numcxi : numPesOnNode;
-      int quad=numPesOnNode/div;
+      int quad= (numPesOnNode>=numcxi) ? numcxi : numPesOnNode;
+      //      CmiPrintf("[%d] divnumPesOnNode %d numcxi %d quad %d\n",myRank, numPesOnNode, numcxi, quad);
       // determine where we fall in the ordering
       // Default OS id order on frontier
       /* 0-15  -> HSN-2
@@ -812,12 +814,12 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
       if(numcxi==4)
 	{
 	  short hsnOrder[4]= {1,3,0,2};
-	  if(myRank/quad>numcxi)
+	  if(myRank%quad>numcxi)
 	    {
 	      CmiPrintf("Error: myrank %d quad %d myrank/quad %n",myRank,quad, myRank/quad);
 	      CmiAbort("cxi mapping failure");
 	    }
-	  myNet=hsnOrder[myRank/quad];
+	  myNet=hsnOrder[myRank%quad];
 	}
       else
 	{
@@ -840,19 +842,19 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
       if(strncmp(aprov->domain_attr->name,myDomainName,4)==0)
 	{
 	  prov = aprov;
+#if OFI_VERBOSE_STARTUP
 	  if(*myNodeID<=numPesOnNode)
 	    CmiPrintf("Process [%d] will use domain %s\n", *myNodeID, myDomainName);
+#else
+	  //assume a manual map wants confirming output
+	  if(cximap != NULL)
+	    CmiPrintf("Process [%d] will use domain %s\n", *myNodeID, myDomainName);
+#endif
 	}
     }
 #endif
-  OFI_INFO("[%d]provider: %s\n", *myNodeID, prov->fabric_attr->prov_name);
-  OFI_INFO("[%d]domain: %s\n", *myNodeID, prov->domain_attr->name);
-  OFI_INFO("control progress: %d\n", prov->domain_attr->control_progress);
-  OFI_INFO("data progress: %d\n", prov->domain_attr->data_progress);
 
   context.inject_maxsize = prov->tx_attr->inject_size;
-  OFI_INFO("maximum inject message size: %ld\n", context.inject_maxsize);
-
   context.eager_maxsize = OFI_EAGER_MAXSIZE_DEFAULT;
   CmiGetArgInt(*argv, "+ofi_eager_maxsize", (int*)&context.eager_maxsize);
   if (context.eager_maxsize > prov->ep_attr->max_msg_size)
@@ -862,29 +864,37 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
   max_header_size = (sizeof(OFIRmaHeader) >= sizeof(OFIRmaAck)) ? sizeof(OFIRmaHeader) : sizeof(OFIRmaAck);
   if (context.eager_maxsize < max_header_size)
     CmiAbort("OFI::LrtsInit::Eager max size too small to fit headers.");
-  OFI_INFO("eager maximum message size: %ld (maximum header size: %ld)\n",
-	   context.eager_maxsize, max_header_size);
-
   context.cq_entries_count = OFI_CQ_ENTRIES_COUNT_DEFAULT;
   CmiGetArgInt(*argv, "+ofi_cq_entries_count", (int*)&context.cq_entries_count);
   if (context.cq_entries_count > OFI_CQ_ENTRIES_COUNT_MAX || context.cq_entries_count <= 0)
     CmiAbort("OFI::LrtsInit::Cq entries count range error");
-  OFI_INFO("cq entries count: %ld\n", context.cq_entries_count);
-
   context.use_inject = OFI_USE_INJECT_DEFAULT;
   CmiGetArgInt(*argv, "+ofi_use_inject", &context.use_inject);
   if (context.use_inject < 0)
     CmiAbort("OFI::LrtsInit::Use inject value error");
-  OFI_INFO("use inject: %d\n", context.use_inject);
-
   context.rma_maxsize = prov->ep_attr->max_msg_size;
 #if CMK_CXI
   context.mr_mode = prov->domain_attr->mr_mode;
-  OFI_INFO("requested mr mode: 0x%x\n", FI_MR_ENDPOINT);
-  OFI_INFO("requested mr mode & mr_mode: 0x%x\n", (FI_MR_ENDPOINT) & context.mr_mode);
 #else
   // the old code path uses the defunct enum
   context.mr_mode = static_cast<fi_mr_mode>(prov->domain_attr->mr_mode);
+#endif
+
+#define OFI_VERBOSE_STARTUP 0
+#if OFI_VERBOSE_STARTUP
+  OFI_INFO("[%d]provider: %s\n", *myNodeID, prov->fabric_attr->prov_name);
+  OFI_INFO("[%d]domain: %s\n", *myNodeID, prov->domain_attr->name);
+  OFI_INFO("control progress: %d\n", prov->domain_attr->control_progress);
+  OFI_INFO("data progress: %d\n", prov->domain_attr->data_progress);
+  OFI_INFO("maximum inject message size: %ld\n", context.inject_maxsize);
+  OFI_INFO("eager maximum message size: %ld (maximum header size: %ld)\n",
+	   context.eager_maxsize, max_header_size);
+  OFI_INFO("cq entries count: %ld\n", context.cq_entries_count);
+  OFI_INFO("use inject: %d\n", context.use_inject);
+
+#if CMK_CXI
+  OFI_INFO("requested mr mode: 0x%x\n", FI_MR_ENDPOINT);
+  OFI_INFO("requested mr mode & mr_mode: 0x%x\n", (FI_MR_ENDPOINT) & context.mr_mode);
 #endif
   // start at 51 for the normal stuff, like pool messages
   context.mr_counter = 51;
@@ -892,7 +902,8 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
   OFI_INFO("mr mode: 0x%x\n", context.mr_mode);
 
   OFI_INFO("mr virtual address support : 0x%x\n", context.mr_mode & FI_MR_VIRT_ADDR);
-
+    OFI_INFO("use memory pool: %d\n", USE_MEMPOOL);
+#endif //verbose
 
 #if CMK_CXI
   if ((context.mr_mode & FI_MR_ENDPOINT)==0)
@@ -909,7 +920,7 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
     CmiAbort("OFI::LrtsInit::Unsupported MR mode");
   }
 #endif
-  OFI_INFO("use memory pool: %d\n", USE_MEMPOOL);
+
 
 #if USE_MEMPOOL
   size_t mempool_init_size_mb = MEMPOOL_INIT_SIZE_MB_DEFAULT;
@@ -932,12 +943,13 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
 
   if (context.mempool_lb_size > context.mempool_rb_size)
     CmiAbort("OFI::LrtsInit::Mempool left border should be less or equal to right border");
-
+#if OFI_VERBOSE_STARTUP
   OFI_INFO("mempool init size: %ld\n", context.mempool_init_size);
   OFI_INFO("mempool expand size: %ld\n", context.mempool_expand_size);
   OFI_INFO("mempool max size: %lld\n", context.mempool_max_size);
   OFI_INFO("mempool left border size: %ld\n", context.mempool_lb_size);
   OFI_INFO("mempool right border size: %ld\n", context.mempool_rb_size);
+#endif
 #endif
 
   /**
@@ -1032,9 +1044,9 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
   if (ret < 0) {
     CmiAbort("OFI::LrtsInit::fi_enable error");
   }
-
+#if OFI_VERBOSE_STARTUP
   OFI_INFO("use request cache: %d\n", USE_OFIREQUEST_CACHE);
-
+#endif
 #if USE_OFIREQUEST_CACHE
   /**
    * Create request cache.
@@ -1049,8 +1061,9 @@ void LrtsInit(int *argc, char ***argv, int *numNodes, int *myNodeID)
   CmiGetArgInt(*argv, "+ofi_num_recvs", &context.num_recv_reqs);
   if (context.num_recv_reqs > OFI_NUM_RECV_REQS_MAX || context.num_recv_reqs <= 0)
     CmiAbort("OFI::LrtsInit::Num recv reqs range error");
+#if OFI_VERBOSE_STARTUP
   OFI_INFO("number of pre-allocated recvs: %i\n", context.num_recv_reqs);
-
+#endif
   /**
    * Exchange EP names and insert them into the AV.
    */
@@ -1183,6 +1196,47 @@ void send_rma_callback(struct fi_cq_tagged_entry *e, OFIRequest *req)
     MACHSTATE(3, "} OFI::send_rma_callback done");
 }
 
+
+#ifdef CMK_CXI
+static inline
+void ofi_send_reg(void *buf, size_t buf_size, int addr, uint64_t tag, OFIRequest *req, 	struct fid_mr* mr)
+{
+    if (context.use_inject && buf_size <= context.inject_maxsize)
+    {
+        /**
+         * The message is small enough to be injected.
+         * This won't generate any completion, so we can free the msg now.
+         */
+        MACHSTATE(3, "----> inject");
+
+        OFI_RETRY(fi_tinject(context.ep,
+                             buf,
+                             buf_size,
+                             addr,
+                             tag));
+        req->callback(NULL, req);
+    }
+    else
+      {
+
+	MACHSTATE3(3, "msg send mr %p: mr key %lu buf %p\n", mr, fi_mr_key(mr), buf);
+        /* Else, use regular send. */
+        OFI_RETRY(fi_tsend(context.ep,
+                           buf,
+                           buf_size,
+#if CMK_CXI
+			   fi_mr_desc(mr),
+#else
+			   NULL,
+#endif
+			   addr,
+                           tag,
+                           &req->context));
+    }
+}
+#endif
+
+
 static inline
 void ofi_send(void *buf, size_t buf_size, int addr, uint64_t tag, OFIRequest *req)
 {
@@ -1234,6 +1288,11 @@ void ofi_register_and_send(void *buf, size_t buf_size, int addr, uint64_t tag, O
          * This won't generate any completion, so we can free the msg now.
          */
         MACHSTATE(3, "----> inject");
+#if CMK_CXI
+
+	struct fid_mr* mr;
+	ofi_reg_bind_enable(buf, buf_size, &mr,&context);
+#endif
 
         OFI_RETRY(fi_tinject(context.ep,
                              buf,

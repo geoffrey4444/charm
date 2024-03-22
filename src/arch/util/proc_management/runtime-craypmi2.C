@@ -35,7 +35,7 @@ int runtime_init(int *rank, int *jobsize)
     int max_kvsnamelen = PMI2_MAX_VALLEN;
 
     ret = PMI2_Init(&spawned, jobsize, rank, &appnum);
-    printf("PMI2_init ret %d jobsize %d rank %d\n",ret, *jobsize, *rank);
+    //    printf("PMI2_init ret %d jobsize %d rank %d\n",ret, *jobsize, *rank);
     if (PMI2_SUCCESS != ret) {
         return 1;
     }

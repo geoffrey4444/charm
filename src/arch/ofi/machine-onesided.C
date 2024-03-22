@@ -252,12 +252,13 @@ void LrtsIssueRget(NcpyOperationInfo *ncpyOpInfo) {
              req);
 
 #else
-    ofi_send(ncpyOpInfo,
+	CmiOfiRdmaPtr_t *dest_info = (CmiOfiRdmaPtr_t *)((char *)ncpyOpInfo->destLayerInfo + CmiGetRdmaCommonInfoSize());
+	ofi_send_reg(ncpyOpInfo,
              ncpyOpInfo->ncpyOpInfoSize,
              CmiNodeOf(ncpyOpInfo->srcPe),
              OFI_RDMA_DIRECT_REG_AND_PUT,
-             req);
-#endif    
+		     req, dest_info->mr);
+#endif
   } else {
 
     CmiOfiRdmaPtr_t *dest_info = (CmiOfiRdmaPtr_t *)((char *)ncpyOpInfo->destLayerInfo + CmiGetRdmaCommonInfoSize());
@@ -307,12 +308,19 @@ void LrtsIssueRput(NcpyOperationInfo *ncpyOpInfo) {
     req->size     = ncpyOpInfo->ncpyOpInfoSize;
     req->callback = send_short_callback;
     req->data.short_msg = ncpyOpInfo;
-
+#if CMK_OFI_CXI
+    ofi_register_and_send(ncpyOpInfo,
+			  ncpyOpInfo->ncpyOpInfoSize,
+			  CmiNodeOf(ncpyOpInfo->destPe),
+			  OFI_RDMA_DIRECT_REG_AND_GET,
+			  req);
+#else
     ofi_send(ncpyOpInfo,
              ncpyOpInfo->ncpyOpInfoSize,
              CmiNodeOf(ncpyOpInfo->destPe),
              OFI_RDMA_DIRECT_REG_AND_GET,
              req);
+#endif
   } else {
 
     CmiOfiRdmaPtr_t *dest_info = (CmiOfiRdmaPtr_t *)((char *)(ncpyOpInfo->destLayerInfo) + CmiGetRdmaCommonInfoSize());
