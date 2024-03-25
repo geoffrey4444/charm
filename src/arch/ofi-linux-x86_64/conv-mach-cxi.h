@@ -4,6 +4,9 @@
 #define CMK_OFI                                            1
 /* for Slingshot-11 the provider is CXI, this is notably different
  in how memory registration is handled from the old OFI. */
+#ifdef CMK_CXI
+#undef CMK_CXI
+#endif
 #define CMK_CXI                                        1
 
 /* define the default linker, together with its options */

@@ -212,7 +212,7 @@ option(CUDA                "Build with CUDA support" OFF)
 option(PXSHM               "Build with PXSHM" OFF)
 
 # LRTS PMI options
-set(LRTS_PMI "" CACHE STRING "PMI type for UCX and OFI layers, can be one of simplepmi, slurmpmi, slurmpmi2, ompipmix, or openpmix")
+set(LRTS_PMI "" CACHE STRING "PMI type for UCX and OFI layers, can be one of simplepmi, slurmpmi, slurmpmi2, slurmpmi2cray, ompipmix, or openpmix")
 
 set(EXTRA_OPTS "" CACHE STRING "Extra flags to pass to compilers.")
 
@@ -714,6 +714,10 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/src/arch/${VDIR}/conv-mach-cxi.sh)
   configure_file(src/arch/${VDIR}/conv-mach-cxi.h          include/ COPYONLY)
 endif()
 
+if(EXISTS ${CMAKE_SOURCE_DIR}/src/arch/${VDIR}/conv-mach-slurmpmi2cray.sh)
+  configure_file(src/arch/${VDIR}/conv-mach-slurmpmi2cray.sh         include/ COPYONLY)
+  configure_file(src/arch/${VDIR}/conv-mach-slurmpmi2cray.h          include/ COPYONLY)
+endif()
 
 if(EXISTS ${CMAKE_SOURCE_DIR}/src/arch/${VDIR}/conv-mach-pxshm.sh)
   configure_file(src/arch/${VDIR}/conv-mach-pxshm.sh         include/ COPYONLY)

@@ -166,13 +166,15 @@ int main() {
 # Unset workaround from above
 set(CMAKE_REQUIRED_FLAGS "")
 if(${NETWORK} STREQUAL "ofi" OR ${NETWORK} STREQUAL "ofi-crayshasta" OR ${NETWORK} STREQUAL "ofi-linux")
-# assume HPC installation
-include(CMakePrintHelpers)
+# assume HPC installation with LMOD
+  include(CMakePrintHelpers)
   find_package(EnvModules REQUIRED)
   find_package(PkgConfig REQUIRED)
   if(EnvModules_FOUND)
-  #at least get libfabric loaded if it isn't already
+  # we need libfabric cray-libpals and cray-pmi
 	env_module(load libfabric)
+	env_module(load cray-libpals)
+	env_module(load cray-pmi)
   endif()
   set(tmp ${CMAKE_REQUIRED_LIBRARIES})
   if(${PkgConfig_FOUND})
