@@ -767,6 +767,7 @@ public:
 //Target methods:
 	virtual void pup(er &p);
 	virtual const PUP_ID &get_PUP_ID(void) const=0;
+  static const PUP_ID &get_static_PUP_ID(void);
 };
 
 template <typename T, bool PUPable = std::is_base_of<PUP::able, T>::value>
@@ -806,6 +807,7 @@ private: \
     static PUP::able::PUP_ID my_PUP_ID;\
 public:\
     virtual const PUP::able::PUP_ID &get_PUP_ID(void) const; \
+    static const PUP::able::PUP_ID &get_static_PUP_ID(void); \
     static void register_PUP_ID(const char* name);
 
 #define PUPable_decl_base_template(baseClassName, className)                   \
@@ -821,6 +823,8 @@ private: \
 public: \
     virtual const PUP::able::PUP_ID &get_PUP_ID(void) const { \
         return my_PUP_ID; }					\
+    static const PUP::able::PUP_ID &get_static_PUP_ID(void) { \
+        return my_PUP_ID; } \
     static void register_PUP_ID(const char* name) { \
         my_PUP_ID=register_constructor(name,call_PUP_constructor);}
 
@@ -833,6 +837,9 @@ private:                                                                       \
                                                                                \
 public:                                                                        \
     virtual const PUP::able::PUP_ID &get_PUP_ID(void) const {                  \
+        return my_PUP_ID;                                                      \
+    }                                                                          \
+    static const PUP::able::PUP_ID &get_static_PUP_ID(void) {                  \
         return my_PUP_ID;                                                      \
     }                                                                          \
     static void register_PUP_ID(const char *name) {                            \
@@ -853,6 +860,8 @@ public:                                                                        \
          return new className((CkMigrateMessage *)0);}			\
      template<templateParameters> const PUP::able::PUP_ID &className::get_PUP_ID(void) const { \
          return className::my_PUP_ID; }					\
+     template<templateParameters> static const PUP::able::PUP_ID &className::get_static_PUP_ID(void) { \
+         return className::my_PUP_ID; } \
      template<templateParameters> void className::register_PUP_ID(const char* name) { \
          my_PUP_ID=register_constructor(name,className::call_PUP_constructor);}
 
@@ -862,6 +871,7 @@ public:                                                                        \
 #define PUPable_abstract(className) \
 public:\
     virtual const PUP::able::PUP_ID &get_PUP_ID(void) const =0; \
+    static const PUP::able::PUP_ID &get_static_PUP_ID(void); \
     PUPable_operator_inside(className)
 
 //Definitions to include exactly once at file scope
