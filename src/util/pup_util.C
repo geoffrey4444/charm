@@ -18,6 +18,7 @@ virtual functions are defined here.
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 #include "converse.h"
 #include "pup.h"
@@ -588,7 +589,7 @@ const PUP_regEntry *PUP_getRegEntry(const PUP::able::PUP_ID &id,
 	if (cur==NULL){
           if (name_hint != NULL)
             CmiAbort("Unrecognized PUP::able::PUP_ID for %s", name_hint);
-          CmiAbort("Unrecognized PUP::able::PUP_ID %x%x%x%x%x%x%x%x in registry containing %d objects", id.hash[0], id.hash[1], id.hash[2], id.hash[3], id.hash[4], id.hash[5], id.hash[6], id.hash[7], PUP_getRegistry()->CkHashtable::numObjects());
+          CmiAbort("Unrecognized PUP::able::PUP_ID %x%x%x%x%x%x%x%x in registry containing %d objects from (current, parent) PID (%x, %x)", id.hash[0], id.hash[1], id.hash[2], id.hash[3], id.hash[4], id.hash[5], id.hash[6], id.hash[7], PUP_getRegistry()->CkHashtable::numObjects(), ::getpid(), ::getppid());
         }
 	return cur;
 }
