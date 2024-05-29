@@ -18,6 +18,7 @@ virtual functions are defined here.
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <unistd.h>
 
 #include "converse.h"
@@ -575,21 +576,25 @@ typedef CkHashtableTslow<PUP::able::PUP_ID,PUP_regEntry> PUP_registry;
 
 // FIXME: not SMP safe!    // gzheng
 static PUP_registry *PUP_getRegistry(void) {
-        static PUP_registry *reg = NULL;
-	if (reg==NULL)
-		reg=new PUP_registry();
+        static PUP_registry *reg = new PUP_registry();
+	// if (reg==NULL) {
+	// 	reg=new PUP_registry();
+  //   CmiPrintf("Making new PUP_registry() %lx %lx\n", reg, &reg);
+  // }
+  CmiPrintf("Returning PUP_registry() %lx\n", reg);
 	return reg;
 }
 
 const PUP_regEntry *PUP_getRegEntry(const PUP::able::PUP_ID &id,
                                     const char *const name_hint = NULL)
 {
+  PUP_registry* reg = PUP_getRegistry();
 	const PUP_regEntry *cur=(const PUP_regEntry *)(
-		PUP_getRegistry()->CkHashtable::get((const void *)&id) );
+		reg->CkHashtable::get((const void *)&id) );
 	if (cur==NULL){
           if (name_hint != NULL)
             CmiAbort("Unrecognized PUP::able::PUP_ID for %s", name_hint);
-          CmiAbort("Unrecognized PUP::able::PUP_ID %x%x%x%x%x%x%x%x in registry containing %d objects from (current, parent) PID (%x, %x)", id.hash[0], id.hash[1], id.hash[2], id.hash[3], id.hash[4], id.hash[5], id.hash[6], id.hash[7], PUP_getRegistry()->CkHashtable::numObjects(), ::getpid(), ::getppid());
+          CmiAbort("Unrecognized PUP::able::PUP_ID %x%x%x%x%x%x%x%x in registry containing %d objects from (current, parent) PID (%x, %x) - thread %lx - registry %lx", id.hash[0], id.hash[1], id.hash[2], id.hash[3], id.hash[4], id.hash[5], id.hash[6], id.hash[7], PUP_getRegistry()->CkHashtable::numObjects(), ::getpid(), ::getppid(), pthread_self(), reg);
         }
 	return cur;
 }
